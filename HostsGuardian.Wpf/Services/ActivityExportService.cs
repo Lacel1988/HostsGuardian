@@ -1,87 +1,76 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using HostsGuardian.Wpf.ViewModels;
+using System.IO;
+using HostsGuardian.Core.Models;
+using HostsGuardian.Core.Services;
 
 namespace HostsGuardian.Wpf.Services
 {
-    public class ActivityExportService
+    public sealed class ActivityExportService
     {
-        public string BuildCsv(IEnumerable<ActivityItemVm> items)
+        private readonly FileDialogService _dialog;
+        private readonly StatusExportService _exporter;
+
+        public ActivityExportService(FileDialogService dialog, StatusExportService exporter)
         {
-            var sb = new StringBuilder();
-            sb.AppendLine("atUtc,level,message");
-
-            foreach (var it in items ?? Enumerable.Empty<ActivityItemVm>())
-            {
-                var at = it.AtUtc.ToString("o");
-                var lvl = EscapeCsv(it.Level);
-                var msg = EscapeCsv(it.Message);
-                sb.AppendLine($"{at},{lvl},{msg}");
-            }
-
-            return sb.ToString();
+            _dialog = dialog;
+            _exporter = exporter;
         }
 
-        public string BuildJson(IEnumerable<ActivityItemVm> items)
+        public bool ExportCsv(string suggestedName, out string message, Func<IEnumerable<AuditLogEntry>> getEntries)
         {
-            // Minimal JSON (külön lib nélkül)
-            var list = (items ?? Enumerable.Empty<ActivityItemVm>())
-                .Select(i => new
-                {
-                    atUtc = i.AtUtc.ToString("o"),
-                    level = i.Level ?? "",
-                    message = i.Message ?? ""
-                })
-                .ToList();
+            var path = _dialog.SaveFile(
+                filter: "CSV files (*.csv)|*.csv|All files (*.*)|*.*",
+                defaultExt: ".csv",
+                defaultFileName: suggestedName
+            );
 
-            return SimpleJson.Serialize(list);
+            if (path == null)
+            {
+                message = "Export cancelled.";
+                return false;
+            }
+
+            try
+            {
+                var csv = _exporter.ExportActivityCsv(getEntries());
+                File.WriteAllText(path, csv);
+                message = "CSV exported: " + path;
+                return true;
+            }
+            catch (Exception ex)
+            {
+                message = "Export failed: " + ex.Message;
+                return false;
+            }
         }
 
-        private static string EscapeCsv(string? s)
+        public bool ExportJson(string suggestedName, out string message, Func<IEnumerable<AuditLogEntry>> getEntries)
         {
-            s ??= "";
-            var mustQuote = s.Contains(',') || s.Contains('"') || s.Contains('\n') || s.Contains('\r');
-            s = s.Replace("\"", "\"\"");
-            return mustQuote ? $"\"{s}\"" : s;
-        }
+            var path = _dialog.SaveFile(
+                filter: "JSON files (*.json)|*.json|All files (*.*)|*.*",
+                defaultExt: ".json",
+                defaultFileName: suggestedName
+            );
 
-        private static class SimpleJson
-        {
-            public static string Serialize(object obj)
+            if (path == null)
             {
-                // nagyon egyszerű, listához elég
-                if (obj is IEnumerable<object> enumerable)
-                {
-                    var parts = enumerable.Select(SerializeObject);
-                    return "[" + string.Join(",", parts) + "]";
-                }
-                return SerializeObject(obj);
+                message = "Export cancelled.";
+                return false;
             }
 
-            private static string SerializeObject(object o)
+            try
             {
-                var props = o.GetType().GetProperties();
-                var parts = new List<string>();
-                foreach (var p in props)
-                {
-                    var name = p.Name;
-                    var val = p.GetValue(o);
-                    parts.Add($"\"{Escape(name)}\":{SerializeValue(val)}");
-                }
-                return "{" + string.Join(",", parts) + "}";
+                var json = _exporter.ExportActivityJson(getEntries());
+                File.WriteAllText(path, json);
+                message = "JSON exported: " + path;
+                return true;
             }
-
-            private static string SerializeValue(object? v)
+            catch (Exception ex)
             {
-                if (v == null) return "null";
-                if (v is string s) return $"\"{Escape(s)}\"";
-                return $"\"{Escape(v.ToString() ?? "")}\"";
+                message = "Export failed: " + ex.Message;
+                return false;
             }
-
-            private static string Escape(string s)
-                => s.Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\r", "\\r").Replace("\n", "\\n");
         }
     }
 }

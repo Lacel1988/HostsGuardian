@@ -1,6 +1,7 @@
-﻿namespace HostsGuardian.Core.Models;
-
-public sealed class DomainEntry
+﻿namespace HostsGuardian.Core.Models
 {
-    public string Domain { get; set; } = "";
+    public sealed class DomainEntry
+    {
+        public string Domain { get; set; } = "";
+    }
 }

@@ -5,32 +5,25 @@ using System.Windows.Data;
 
 namespace HostsGuardian.Wpf.Converters
 {
-    public class BoolToVisibilityConverter : IValueConverter
+    public sealed class BoolToVisibilityConverter : IValueConverter
     {
         public bool Invert { get; set; }
         public bool CollapseWhenFalse { get; set; } = true;
 
         public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
         {
-            bool isVisible = value is bool b && b;
+            var b = value is bool bb && bb;
 
-            if (parameter?.ToString() == "invert")
-                isVisible = !isVisible;
+            if (parameter is string s && s.Equals("invert", StringComparison.OrdinalIgnoreCase))
+                b = !b;
 
-            if (Invert)
-                isVisible = !isVisible;
+            if (Invert) b = !b;
 
-            if (isVisible)
-                return Visibility.Visible;
-
-            return CollapseWhenFalse
-                ? Visibility.Collapsed
-                : Visibility.Hidden;
+            if (b) return Visibility.Visible;
+            return CollapseWhenFalse ? Visibility.Collapsed : Visibility.Hidden;
         }
 
         public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
-        {
-            return value is Visibility v && v == Visibility.Visible;
-        }
+            => value is Visibility v && v == Visibility.Visible;
     }
 }

@@ -118,13 +118,11 @@ switch (cmd)
                 LastAppliedAtUtc = cfg.LastAppliedAtUtc
             };
 
-            var outPath = statusSvc.Export(status);
 
             Console.WriteLine($"Hosts active: {status.HostsBlockActive}");
             Console.WriteLine($"Blocked domains: {status.BlockedDomainCount}");
             Console.WriteLine($"Last applied by: {status.LastAppliedBy ?? "n/a"}");
             Console.WriteLine($"Last applied at (UTC): {(status.LastAppliedAtUtc.HasValue ? status.LastAppliedAtUtc.Value.ToString("yyyy-MM-dd HH:mm:ss") : "n/a")}");
-            Console.WriteLine($"Status file: {outPath}");
         }
         break;
 

@@ -38,6 +38,7 @@
     <None Remove="Assets\Fonts\Orbitron-Medium.ttf" />
     <None Remove="Assets\Fonts\Orbitron-Regular.ttf" />
     <None Remove="Assets\Fonts\Orbitron-SemiBold.ttf" />
+    <None Remove="Assets\Fonts\Orbitron-VariableFont_wght.ttf" />
   </ItemGroup>
 
   <ItemGroup>
@@ -127,6 +128,7 @@
     <Resource Include="Assets\Fonts\Orbitron-SemiBold.ttf">
       <CopyToOutputDirectory>Never</CopyToOutputDirectory>
     </Resource>
+    <Resource Include="Assets\Fonts\Orbitron-VariableFont_wght.ttf" />
   </ItemGroup>
 
 </Project>

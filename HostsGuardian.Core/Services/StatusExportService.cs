@@ -1,5 +1,4 @@
 ﻿using System.Collections.Generic;
-using System.IO;
 using System.Linq;
 using System.Text;
 using System.Text.Json;
@@ -9,21 +8,6 @@ namespace HostsGuardian.Core.Services
 {
     public sealed class StatusExportService
     {
-        // AppStatus export (Console "status" parancshoz)
-        public string Export(AppStatus status)
-        {
-            Directory.CreateDirectory(PathsService.AppFolder);
-
-            var json = JsonSerializer.Serialize(status, new JsonSerializerOptions
-            {
-                WriteIndented = true
-            });
-
-            File.WriteAllText(PathsService.StatusPath, json, Encoding.UTF8);
-            return PathsService.StatusPath;
-        }
-
-        // Activity export (WPF Activity panel export gombokhoz)
         public string ExportActivityCsv(IEnumerable<AuditLogEntry> entries)
         {
             var sb = new StringBuilder();
@@ -53,7 +37,6 @@ namespace HostsGuardian.Core.Services
             s ??= "";
             var mustQuote = s.Contains(',') || s.Contains('"') || s.Contains('\n') || s.Contains('\r');
             if (!mustQuote) return s;
-
             return "\"" + s.Replace("\"", "\"\"") + "\"";
         }
     }

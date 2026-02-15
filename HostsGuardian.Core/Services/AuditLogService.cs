@@ -24,7 +24,7 @@ namespace HostsGuardian.Core.Services
 
             lock (_lock)
             {
-                Directory.CreateDirectory(Path.GetDirectoryName(PathsService.AuditLogPath)!);
+                Directory.CreateDirectory(PathsService.AppFolder);
                 File.AppendAllText(PathsService.AuditLogPath, line + Environment.NewLine);
             }
         }
@@ -34,8 +34,6 @@ namespace HostsGuardian.Core.Services
             if (max <= 0) return new List<AuditLogEntry>();
             if (!File.Exists(PathsService.AuditLogPath)) return new List<AuditLogEntry>();
 
-            // egyszerű: beolvassuk a végéről max sort
-            // (kis lognál bőven oké)
             var lines = File.ReadAllLines(PathsService.AuditLogPath);
             return lines
                 .Reverse()
@@ -49,7 +47,6 @@ namespace HostsGuardian.Core.Services
 
         private static string Serialize(AuditLogEntry e)
         {
-            // Format: 2026-02-13T12:34:56.789Z | INFO | message...
             var ts = e.AtUtc.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ", CultureInfo.InvariantCulture);
             return $"{ts} | {e.Level} | {e.Message}";
         }

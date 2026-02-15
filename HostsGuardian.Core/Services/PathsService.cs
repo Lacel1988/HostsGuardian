@@ -17,7 +17,6 @@ namespace HostsGuardian.Core.Services
         public static string ConfigPath => Path.Combine(AppFolder, "config.json");
         public static string AuditLogPath => Path.Combine(AppFolder, "audit.log");
         public static string StatusPath => Path.Combine(AppFolder, "status.json");
-        public static string CrashLogPath => Path.Combine(AppFolder, "crash.log"); // +++
 
         public static string HostsDir => Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.System),

@@ -2,39 +2,37 @@
 using System.Text.Json;
 using HostsGuardian.Core.Models;
 
-namespace HostsGuardian.Core.Services;
-
-public sealed class ConfigService
+namespace HostsGuardian.Core.Services
 {
-    private static readonly JsonSerializerOptions JsonOpts = new()
+    public sealed class ConfigService
     {
-        WriteIndented = true
-    };
-
-    public AppConfig Load()
-    {
-        try
+        private static readonly JsonSerializerOptions JsonOpts = new()
         {
-            Directory.CreateDirectory(PathsService.AppFolder); // +++
+            WriteIndented = true
+        };
 
-            if (!File.Exists(PathsService.ConfigPath))
+        public AppConfig Load()
+        {
+            try
+            {
+                if (!File.Exists(PathsService.ConfigPath))
+                    return new AppConfig();
+
+                var json = File.ReadAllText(PathsService.ConfigPath);
+                var cfg = JsonSerializer.Deserialize<AppConfig>(json, JsonOpts);
+                return cfg ?? new AppConfig();
+            }
+            catch
+            {
                 return new AppConfig();
-
-            var json = File.ReadAllText(PathsService.ConfigPath);
-            var cfg = JsonSerializer.Deserialize<AppConfig>(json, JsonOpts);
-            return cfg ?? new AppConfig();
+            }
         }
-        catch
+
+        public void Save(AppConfig cfg)
         {
-            return new AppConfig();
+            Directory.CreateDirectory(PathsService.AppFolder);
+            var json = JsonSerializer.Serialize(cfg, JsonOpts);
+            File.WriteAllText(PathsService.ConfigPath, json);
         }
-    }
-
-    public void Save(AppConfig cfg)
-    {
-        Directory.CreateDirectory(PathsService.AppFolder); // +++
-
-        var json = JsonSerializer.Serialize(cfg, JsonOpts);
-        File.WriteAllText(PathsService.ConfigPath, json);
     }
 }

@@ -2,14 +2,14 @@
 
 namespace HostsGuardian.Wpf.Services
 {
-    public sealed class FileDialogService : IFileDialogService
+    public sealed class FileDialogService
     {
-        public string? SaveFile(string title, string filter, string defaultFileName)
+        public string? SaveFile(string filter, string defaultExt, string defaultFileName)
         {
             var dlg = new SaveFileDialog
             {
-                Title = title,
                 Filter = filter,
+                DefaultExt = defaultExt,
                 FileName = defaultFileName,
                 AddExtension = true,
                 OverwritePrompt = true

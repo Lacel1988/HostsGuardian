@@ -1,12 +1,11 @@
 ﻿<Application x:Class="HostsGuardian.Wpf.App"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:conv="clr-namespace:HostsGuardian.Wpf.Converters"
              StartupUri="MainWindow.xaml">
+
     <Application.Resources>
 
-        <conv:BoolToVisibilityConverter x:Key="BoolToVisibility"/>
-
+        <!-- MATRIX PALETTE -->
         <Color x:Key="M_Bg">#FF050607</Color>
         <Color x:Key="M_Panel">#FF0A0D0B</Color>
         <Color x:Key="M_Green">#FF00FF66</Color>
@@ -25,20 +24,16 @@
         <SolidColorBrush x:Key="SubTextBrush" Color="{StaticResource M_SubText}" />
         <SolidColorBrush x:Key="RedBrush" Color="{StaticResource M_Red}" />
 
-        <FontFamily x:Key="OrbitronFont">pack://application:,,,/HostsGuardian.Wpf;component/Assets/Fonts/#Orbitron</FontFamily>
-        <FontFamily x:Key="ExoFont">pack://application:,,,/HostsGuardian.Wpf;component/Assets/Fonts/#Exo</FontFamily>
-
+        <!-- BASE WINDOW -->
         <Style TargetType="{x:Type Window}">
             <Setter Property="Background" Value="{StaticResource BgBrush}" />
             <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
-            <Setter Property="FontFamily" Value="{StaticResource OrbitronFont}" />
             <Setter Property="FontSize" Value="13" />
             <Setter Property="SnapsToDevicePixels" Value="True"/>
         </Style>
 
         <Style TargetType="{x:Type TextBlock}">
             <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
-            <Setter Property="FontFamily" Value="{StaticResource OrbitronFont}" />
         </Style>
 
         <Style TargetType="{x:Type TextBox}">
@@ -60,37 +55,24 @@
             <Setter Property="Padding" Value="6"/>
         </Style>
 
-        <Style TargetType="{x:Type ListBoxItem}">
-            <Setter Property="FontFamily" Value="{StaticResource ExoFont}" />
-            <Setter Property="FontSize" Value="14"/>
-            <Setter Property="Padding" Value="10,8" />
-            <Setter Property="Margin" Value="4,3" />
-            <Setter Property="Background" Value="Transparent" />
-            <Setter Property="BorderBrush" Value="Transparent" />
-            <Setter Property="BorderThickness" Value="1" />
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="{x:Type ListBoxItem}">
-                        <Border x:Name="Bd"
-                                Background="{TemplateBinding Background}"
-                                BorderBrush="{TemplateBinding BorderBrush}"
-                                BorderThickness="{TemplateBinding BorderThickness}"
-                                CornerRadius="10">
-                            <ContentPresenter />
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="#2200FF66" />
-                                <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource GreenDimBrush}" />
-                            </Trigger>
-                            <Trigger Property="IsSelected" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="#3300FF66" />
-                                <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource GreenBrush}" />
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
+        <Style TargetType="{x:Type DataGrid}">
+            <Setter Property="Background" Value="#FF070A08"/>
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource GreenDimBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="RowBackground" Value="#FF070A08"/>
+            <Setter Property="AlternatingRowBackground" Value="#FF060807"/>
+            <Setter Property="HeadersVisibility" Value="Column"/>
+            <Setter Property="GridLinesVisibility" Value="None"/>
+        </Style>
+
+        <Style TargetType="{x:Type DataGridColumnHeader}">
+            <Setter Property="Background" Value="#FF0A0D0B"/>
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource GreenDimBrush}"/>
+            <Setter Property="BorderThickness" Value="0,0,0,1"/>
+            <Setter Property="Padding" Value="10,8"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
         </Style>
 
         <Style x:Key="MatrixPanel" TargetType="{x:Type Border}">
@@ -101,85 +83,43 @@
             <Setter Property="Padding" Value="16" />
         </Style>
 
-        <Style x:Key="MatrixButton3D" TargetType="{x:Type Button}">
+        <!-- SIMPLE MATRIX BUTTON -->
+        <Style x:Key="MatrixButton" TargetType="{x:Type Button}">
             <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+            <Setter Property="Background" Value="#FF050B07"/>
             <Setter Property="BorderBrush" Value="{StaticResource GreenBrush}" />
             <Setter Property="BorderThickness" Value="1" />
-            <Setter Property="Padding" Value="18,10" />
+            <Setter Property="Padding" Value="14,8" />
             <Setter Property="Cursor" Value="Hand" />
-            <Setter Property="FontFamily" Value="{StaticResource OrbitronFont}" />
             <Setter Property="FontWeight" Value="SemiBold"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="{x:Type Button}">
-                        <Grid>
-                            <Border CornerRadius="14" Background="#00000000" Margin="0,4,0,0">
-                                <Border.Effect>
-                                    <DropShadowEffect BlurRadius="18" ShadowDepth="6" Opacity="0.55"/>
-                                </Border.Effect>
-                            </Border>
-
-                            <Border x:Name="Body"
-                                    CornerRadius="14"
-                                    BorderBrush="{TemplateBinding BorderBrush}"
-                                    BorderThickness="{TemplateBinding BorderThickness}">
-                                <Border.Background>
-                                    <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
-                                        <GradientStop Offset="0" Color="#FF0C2212"/>
-                                        <GradientStop Offset="1" Color="#FF050B07"/>
-                                    </LinearGradientBrush>
-                                </Border.Background>
-
-                                <Grid>
-                                    <Border x:Name="Shine" CornerRadius="14" Opacity="0.0">
-                                        <Border.Background>
-                                            <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
-                                                <GradientStop Offset="0" Color="#2400FF66"/>
-                                                <GradientStop Offset="0.45" Color="#1400FF66"/>
-                                                <GradientStop Offset="1" Color="#0000FF66"/>
-                                            </LinearGradientBrush>
-                                        </Border.Background>
-                                    </Border>
-
-                                    <ContentPresenter HorizontalAlignment="Center"
-                                                      VerticalAlignment="Center"/>
-                                </Grid>
-                            </Border>
-
-                            <Border x:Name="Glow"
-                                    CornerRadius="14"
-                                    BorderBrush="{TemplateBinding BorderBrush}"
-                                    BorderThickness="2"
-                                    Opacity="0">
-                                <Border.Effect>
-                                    <DropShadowEffect Color="#00FF66" BlurRadius="26" ShadowDepth="0" Opacity="0.95"/>
-                                </Border.Effect>
-                            </Border>
-                        </Grid>
-
+                        <Border x:Name="Bd"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="12"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Glow" Property="Opacity" Value="0.70"/>
-                                <Setter TargetName="Shine" Property="Opacity" Value="1"/>
+                                <Setter TargetName="Bd" Property="Background" Value="#FF0C2212"/>
                             </Trigger>
-
                             <Trigger Property="IsPressed" Value="True">
-                                <Setter TargetName="Glow" Property="Opacity" Value="0.95"/>
+                                <Setter TargetName="Bd" Property="Background" Value="#FF031008"/>
                             </Trigger>
-
                             <Trigger Property="IsEnabled" Value="False">
                                 <Setter Property="Opacity" Value="0.45"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
-
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
         </Style>
 
-        <Style x:Key="MatrixButton3DDanger"
-               TargetType="{x:Type Button}"
-               BasedOn="{StaticResource MatrixButton3D}">
+        <Style x:Key="MatrixButtonDanger" TargetType="{x:Type Button}" BasedOn="{StaticResource MatrixButton}">
             <Setter Property="BorderBrush" Value="{StaticResource RedBrush}" />
         </Style>
 

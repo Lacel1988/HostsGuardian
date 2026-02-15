@@ -1,0 +1,252 @@
+[
+  {
+    "AtUtc": "2026-02-13T19:34:43.19Z",
+    "Level": "INFO",
+    "Message": "Added domain: index.hu"
+  },
+  {
+    "AtUtc": "2026-02-13T19:35:12.677Z",
+    "Level": "INFO",
+    "Message": "Applied hosts block. Domains: 1"
+  },
+  {
+    "AtUtc": "2026-02-13T19:37:00.715Z",
+    "Level": "INFO",
+    "Message": "Added domain: facebook.com"
+  },
+  {
+    "AtUtc": "2026-02-13T19:37:04.073Z",
+    "Level": "INFO",
+    "Message": "Applied hosts block. Domains: 2"
+  },
+  {
+    "AtUtc": "2026-02-13T19:37:06.042Z",
+    "Level": "INFO",
+    "Message": "Preview generated. Domains: 2"
+  },
+  {
+    "AtUtc": "2026-02-13T19:37:34.733Z",
+    "Level": "WARN",
+    "Message": "Reverted HostsGuardian block."
+  },
+  {
+    "AtUtc": "2026-02-13T19:37:35.821Z",
+    "Level": "WARN",
+    "Message": "Reverted HostsGuardian block."
+  },
+  {
+    "AtUtc": "2026-02-13T19:37:40.71Z",
+    "Level": "WARN",
+    "Message": "Reverted HostsGuardian block."
+  },
+  {
+    "AtUtc": "2026-02-13T19:37:44.353Z",
+    "Level": "INFO",
+    "Message": "Removed domain: index.hu"
+  },
+  {
+    "AtUtc": "2026-02-13T19:37:46.76Z",
+    "Level": "INFO",
+    "Message": "Removed domain: facebook.com"
+  },
+  {
+    "AtUtc": "2026-02-13T19:37:48.485Z",
+    "Level": "WARN",
+    "Message": "Reverted HostsGuardian block."
+  },
+  {
+    "AtUtc": "2026-02-14T00:22:34.373Z",
+    "Level": "INFO",
+    "Message": "Added domain: facebook.com"
+  },
+  {
+    "AtUtc": "2026-02-14T00:22:36.879Z",
+    "Level": "INFO",
+    "Message": "Hosts file applied"
+  },
+  {
+    "AtUtc": "2026-02-14T00:22:58.698Z",
+    "Level": "INFO",
+    "Message": "Hosts file reverted"
+  },
+  {
+    "AtUtc": "2026-02-14T00:22:59.079Z",
+    "Level": "INFO",
+    "Message": "Hosts file reverted"
+  },
+  {
+    "AtUtc": "2026-02-14T00:32:47.487Z",
+    "Level": "INFO",
+    "Message": "Hosts file applied"
+  },
+  {
+    "AtUtc": "2026-02-14T00:32:52.687Z",
+    "Level": "INFO",
+    "Message": "Hosts file applied"
+  },
+  {
+    "AtUtc": "2026-02-14T00:33:07.718Z",
+    "Level": "INFO",
+    "Message": "Hosts file reverted"
+  },
+  {
+    "AtUtc": "2026-02-14T00:33:21.271Z",
+    "Level": "INFO",
+    "Message": "Hosts file applied"
+  },
+  {
+    "AtUtc": "2026-02-14T00:33:23.264Z",
+    "Level": "INFO",
+    "Message": "DNS cache flushed (ipconfig /flushdns)"
+  },
+  {
+    "AtUtc": "2026-02-14T00:33:31.301Z",
+    "Level": "INFO",
+    "Message": "Hosts file reverted"
+  },
+  {
+    "AtUtc": "2026-02-14T00:33:52.68Z",
+    "Level": "INFO",
+    "Message": "Removed domain: facebook.com"
+  },
+  {
+    "AtUtc": "2026-02-14T00:39:44.527Z",
+    "Level": "INFO",
+    "Message": "DNS panel refreshed (info-only)"
+  },
+  {
+    "AtUtc": "2026-02-14T00:39:44.546Z",
+    "Level": "INFO",
+    "Message": "Router direction snapshot refreshed (info-only)"
+  },
+  {
+    "AtUtc": "2026-02-14T00:40:08.238Z",
+    "Level": "INFO",
+    "Message": "Added domain: facebook.com"
+  },
+  {
+    "AtUtc": "2026-02-14T00:40:18.024Z",
+    "Level": "INFO",
+    "Message": "Hosts file applied"
+  },
+  {
+    "AtUtc": "2026-02-14T00:40:31.488Z",
+    "Level": "INFO",
+    "Message": "Hosts file reverted"
+  },
+  {
+    "AtUtc": "2026-02-14T00:40:37.281Z",
+    "Level": "INFO",
+    "Message": "Removed domain: facebook.com"
+  },
+  {
+    "AtUtc": "2026-02-14T00:40:50.45Z",
+    "Level": "INFO",
+    "Message": "Added domain: facebook.com"
+  },
+  {
+    "AtUtc": "2026-02-14T00:40:56.458Z",
+    "Level": "INFO",
+    "Message": "Added domain: mandiner.hu"
+  },
+  {
+    "AtUtc": "2026-02-14T00:41:12.114Z",
+    "Level": "INFO",
+    "Message": "Added domain: fidesz.hu"
+  },
+  {
+    "AtUtc": "2026-02-14T00:41:31.75Z",
+    "Level": "INFO",
+    "Message": "Hosts file applied"
+  },
+  {
+    "AtUtc": "2026-02-14T00:42:10.207Z",
+    "Level": "INFO",
+    "Message": "Router direction snapshot refreshed (info-only)"
+  },
+  {
+    "AtUtc": "2026-02-14T00:42:11.231Z",
+    "Level": "INFO",
+    "Message": "Router direction snapshot refreshed (info-only)"
+  },
+  {
+    "AtUtc": "2026-02-14T00:42:11.431Z",
+    "Level": "INFO",
+    "Message": "Router direction snapshot refreshed (info-only)"
+  },
+  {
+    "AtUtc": "2026-02-14T00:42:17.629Z",
+    "Level": "INFO",
+    "Message": "Hosts file reverted"
+  },
+  {
+    "AtUtc": "2026-02-14T01:05:33.598Z",
+    "Level": "INFO",
+    "Message": "DNS panel refreshed (info-only)"
+  },
+  {
+    "AtUtc": "2026-02-14T01:05:33.622Z",
+    "Level": "INFO",
+    "Message": "Router direction snapshot refreshed (info-only)"
+  },
+  {
+    "AtUtc": "2026-02-14T01:05:40.403Z",
+    "Level": "INFO",
+    "Message": "Hosts file applied"
+  },
+  {
+    "AtUtc": "2026-02-14T01:05:48.433Z",
+    "Level": "INFO",
+    "Message": "Hosts file reverted"
+  },
+  {
+    "AtUtc": "2026-02-14T02:59:20.677Z",
+    "Level": "INFO",
+    "Message": "DNS panel refreshed (info-only)"
+  },
+  {
+    "AtUtc": "2026-02-14T02:59:20.704Z",
+    "Level": "INFO",
+    "Message": "Router direction snapshot refreshed (info-only)"
+  },
+  {
+    "AtUtc": "2026-02-14T03:08:44.113Z",
+    "Level": "INFO",
+    "Message": "DNS panel refreshed (info-only)"
+  },
+  {
+    "AtUtc": "2026-02-14T03:08:44.188Z",
+    "Level": "INFO",
+    "Message": "Router direction snapshot refreshed (info-only)"
+  },
+  {
+    "AtUtc": "2026-02-14T03:09:00.683Z",
+    "Level": "INFO",
+    "Message": "Hosts file applied"
+  },
+  {
+    "AtUtc": "2026-02-14T03:09:01.51Z",
+    "Level": "INFO",
+    "Message": "Hosts file applied"
+  },
+  {
+    "AtUtc": "2026-02-14T03:10:05.693Z",
+    "Level": "INFO",
+    "Message": "Added domain: index.hu"
+  },
+  {
+    "AtUtc": "2026-02-14T03:10:18.287Z",
+    "Level": "INFO",
+    "Message": "Hosts file applied"
+  },
+  {
+    "AtUtc": "2026-02-14T03:10:19.464Z",
+    "Level": "INFO",
+    "Message": "Hosts file applied"
+  },
+  {
+    "AtUtc": "2026-02-14T03:10:53.086Z",
+    "Level": "INFO",
+    "Message": "Router direction snapshot refreshed (info-only)"
+  }
+]

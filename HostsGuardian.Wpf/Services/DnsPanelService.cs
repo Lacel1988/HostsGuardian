@@ -1,11 +1,43 @@
-﻿namespace HostsGuardian.Wpf.Services
+﻿using System;
+using System.Diagnostics;
+using System.Text;
+
+namespace HostsGuardian.Wpf.Services
 {
-    public class DnsPanelService
+    public sealed class DnsPanelService
     {
         public string GetSnapshot()
         {
-            // Most csak placeholder. Később: netsh / registry / doh ellenőrzés, stb.
-            return "DNS status: not implemented (info-only).";
+            try
+            {
+                // netsh -> DNS szerverek listája (info-only)
+                var psi = new ProcessStartInfo
+                {
+                    FileName = "netsh",
+                    Arguments = "interface ip show dns",
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true
+                };
+
+                using var p = Process.Start(psi);
+                var output = p?.StandardOutput.ReadToEnd() ?? "";
+                var err = p?.StandardError.ReadToEnd() ?? "";
+                p?.WaitForExit(4000);
+
+                var sb = new StringBuilder();
+                sb.AppendLine("DNS status (info-only)");
+                sb.AppendLine("----------------------");
+                if (!string.IsNullOrWhiteSpace(output)) sb.AppendLine(output.Trim());
+                if (!string.IsNullOrWhiteSpace(err)) sb.AppendLine("WARN: " + err.Trim());
+
+                return sb.ToString().Trim();
+            }
+            catch (Exception ex)
+            {
+                return "DNS status: error: " + ex.Message;
+            }
         }
     }
 }
