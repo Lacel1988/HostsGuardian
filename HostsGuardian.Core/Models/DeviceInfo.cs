@@ -1,10 +1,10 @@
-﻿namespace HostsGuardian.Core.Models
+﻿namespace HostsGuardian.Core.Models;
+
+public sealed class DeviceInfo
 {
-    public sealed class DeviceInfo
-    {
-        public string Ip { get; set; } = "";
-        public string Mac { get; set; } = "";
-        public string Name { get; set; } = "";
-        public string Type { get; set; } = "Unknown"; // PC, Mobile, TV, IoT
-    }
+    public string Ip { get; set; } = "";
+    public string Mac { get; set; } = "";
+    public string Hostname { get; set; } = "";
+    public bool IsOnline { get; set; }
+    public int PingMs { get; set; } = -1;
 }

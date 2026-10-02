@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -10,6 +10,8 @@ namespace HostsGuardian.Core.Services
     public sealed class AuditLogService
     {
         private readonly object _lock = new();
+        private readonly string _path;
+        public AuditLogService(string? path = null) => _path = path ?? PathsService.AuditLogPath;
 
         public void Write(string message, string level = "INFO")
         {
@@ -17,24 +19,24 @@ namespace HostsGuardian.Core.Services
             {
                 AtUtc = DateTime.UtcNow,
                 Level = string.IsNullOrWhiteSpace(level) ? "INFO" : level.Trim().ToUpperInvariant(),
-                Message = message ?? ""
+                Message = SecretRedactor.Clean(message)
             };
 
             var line = Serialize(entry);
 
             lock (_lock)
             {
-                Directory.CreateDirectory(PathsService.AppFolder);
-                File.AppendAllText(PathsService.AuditLogPath, line + Environment.NewLine);
+                Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(_path))!);
+                File.AppendAllText(_path, line + Environment.NewLine);
             }
         }
 
         public List<AuditLogEntry> ReadLast(int max = 100)
         {
             if (max <= 0) return new List<AuditLogEntry>();
-            if (!File.Exists(PathsService.AuditLogPath)) return new List<AuditLogEntry>();
+            if (!File.Exists(_path)) return new List<AuditLogEntry>();
 
-            var lines = File.ReadAllLines(PathsService.AuditLogPath);
+            var lines = File.ReadAllLines(_path);
             return lines
                 .Reverse()
                 .Take(max)
@@ -66,7 +68,7 @@ namespace HostsGuardian.Core.Services
                 {
                     AtUtc = dt,
                     Level = parts[1],
-                    Message = parts[2]
+                    Message = SecretRedactor.Clean(parts[2])
                 };
             }
             catch

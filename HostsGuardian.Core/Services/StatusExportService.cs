@@ -1,4 +1,4 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Text.Json;
@@ -19,7 +19,7 @@ namespace HostsGuardian.Core.Services
                 sb.Append(',');
                 sb.Append(EscapeCsv(e.Level));
                 sb.Append(',');
-                sb.Append(EscapeCsv(e.Message));
+                sb.Append(EscapeCsv(SecretRedactor.Clean(e.Message)));
                 sb.AppendLine();
             }
 
@@ -29,7 +29,7 @@ namespace HostsGuardian.Core.Services
         public string ExportActivityJson(IEnumerable<AuditLogEntry> entries)
         {
             var data = entries ?? Enumerable.Empty<AuditLogEntry>();
-            return JsonSerializer.Serialize(data, new JsonSerializerOptions { WriteIndented = true });
+            return SecretRedactor.Clean(JsonSerializer.Serialize(data, new JsonSerializerOptions { WriteIndented = true }));
         }
 
         private static string EscapeCsv(string? s)

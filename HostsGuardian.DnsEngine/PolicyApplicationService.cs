@@ -1,0 +1,139 @@
+using HostsGuardian.Core.Models;
+
+namespace HostsGuardian.DnsEngine;
+
+public sealed record PolicyApplicationResult(bool Success, long? Revision, int Count,
+    bool Removed = false, string FailureCategory = "", string Message = "");
+public sealed record PolicyReadSnapshot(long? Revision, string[] Domains);
+
+/// <summary>Single management mutation boundary: persist first, then publish in memory.</summary>
+public sealed class PolicyApplicationService
+{
+    private readonly RuleStore _rules;
+    private readonly PolicyPersistence _persistence;
+    private readonly object _mutationGate = new();
+    private bool _initialized;
+    public EnginePolicyState State { get; }
+
+    public PolicyApplicationService(RuleStore rules, PolicyPersistence persistence, EnginePolicyState? state = null)
+    {
+        _rules = rules;
+        _persistence = persistence;
+        State = state ?? new EnginePolicyState();
+    }
+
+    public void InitializeForStartup()
+    {
+        lock (_mutationGate)
+        {
+            if (_initialized) return;
+            var loaded = _persistence.Load();
+            if (loaded.Policy != null)
+            {
+                _rules.SetBlockedDomains(loaded.Policy.Domains);
+                State.Publish(new PolicyStateSnapshot(loaded.State, true, loaded.Policy.Revision,
+                    loaded.Policy.Domains.Length, false, "", ""));
+            }
+            else
+            {
+                _rules.SetBlockedDomains(Array.Empty<string>());
+                State.Publish(new PolicyStateSnapshot(loaded.State, false, null, 0, true, "UntrustedPolicy", loaded.Fault));
+                EngineLog.Failure("Policy", "Restore failed; Safe Mode bypass is active");
+            }
+            _initialized = true;
+        }
+    }
+
+    public string[] GetBlockedDomains() => ReadPolicy().Domains;
+
+    public PolicyReadSnapshot ReadPolicy()
+    {
+        lock (_mutationGate)
+            return new PolicyReadSnapshot(State.GetSnapshot().Revision, _rules.GetBlockedDomains());
+    }
+
+    public PolicyApplicationResult Replace(IEnumerable<string> domains)
+    {
+        lock (_mutationGate)
+        {
+            InitializeForStartup();
+            return Commit(Normalize(domains), removed: false);
+        }
+    }
+
+    public PolicyApplicationResult Add(IEnumerable<string> domains)
+    {
+        lock (_mutationGate)
+        {
+            InitializeForStartup();
+            if (!State.GetSnapshot().Loaded) return Failure("RestoreFault", "Replace authorized policy before adding rules");
+            var candidate = _rules.GetBlockedDomains().Concat(Normalize(domains)).Distinct(StringComparer.Ordinal).OrderBy(domain => domain, StringComparer.Ordinal).ToArray();
+            return Commit(candidate, removed: false);
+        }
+    }
+
+    public PolicyApplicationResult Remove(string domain)
+    {
+        lock (_mutationGate)
+        {
+            InitializeForStartup();
+            if (!State.GetSnapshot().Loaded) return Failure("RestoreFault", "Replace authorized policy before removing rules");
+            var normalized = Normalize(new[] { domain })[0];
+            var current = _rules.GetBlockedDomains();
+            var candidate = current.Where(value => value != normalized).OrderBy(value => value, StringComparer.Ordinal).ToArray();
+            return Commit(candidate, candidate.Length != current.Length);
+        }
+    }
+
+    public PolicyApplicationResult SetSafeMode(bool enabled)
+    {
+        lock (_mutationGate)
+        {
+            if (!_initialized) return Failure("NotLoaded", "Policy has not been initialized");
+            var current = State.GetSnapshot();
+            if (!enabled && !current.Loaded) return Failure("RestoreFault", "Replace authorized policy before leaving Safe Mode");
+            State.Publish(current with { SafeMode = enabled, SafeModeReason = enabled ? "ManagementRequested" : "" });
+            return new PolicyApplicationResult(true, current.Revision, current.RuleCount);
+        }
+    }
+
+    private PolicyApplicationResult Commit(string[] candidate, bool removed)
+    {
+        var current = State.GetSnapshot();
+        if (current.Revision == long.MaxValue) return Failure("RevisionExhausted", "Policy revision limit reached");
+        var revision = (current.Revision ?? 0) + 1;
+        try { _persistence.Commit(new CommittedPolicy(revision, candidate), preserveUntrustedFile: !current.Loaded); }
+        catch (ArgumentException) { return Failure("InvalidPolicy", "Policy exceeds storage constraints"); }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or System.Security.SecurityException)
+        {
+            State.Publish(current with { PersistenceFault = "PolicyWriteFailed" });
+            EngineLog.Failure("Policy", "Commit failed; previous policy retained");
+            return Failure("PersistenceFailure", "Policy could not be committed");
+        }
+        _rules.SetBlockedDomains(candidate);
+        State.Publish(current with
+        {
+            Loaded = true, Revision = revision, RuleCount = candidate.Length, PersistenceFault = "",
+            SafeModeReason = current.SafeMode ? "ManagementRequested" : ""
+        });
+        return new PolicyApplicationResult(true, revision, candidate.Length, removed);
+    }
+
+    private PolicyApplicationResult Failure(string category, string message)
+    {
+        var current = State.GetSnapshot();
+        return new PolicyApplicationResult(false, current.Revision, current.RuleCount, FailureCategory: category, Message: message);
+    }
+
+    private static string[] Normalize(IEnumerable<string> domains)
+    {
+        var normalized = new SortedSet<string>(StringComparer.Ordinal);
+        foreach (var domain in domains)
+        {
+            var value = DomainName.Normalize(domain);
+            if (value.Length == 0) throw new ArgumentException("Invalid selected DNS domain");
+            normalized.Add(value);
+        }
+        return normalized.ToArray();
+    }
+}

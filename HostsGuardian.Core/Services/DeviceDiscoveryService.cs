@@ -165,8 +165,7 @@ namespace HostsGuardian.Core.Services
         {
             try
             {
-                var entry = Dns.GetHostEntry(ip);
-                return entry?.HostName;
+                return NetworkScanService.ResolveHostnameAsync(ip, TimeSpan.FromMilliseconds(250)).GetAwaiter().GetResult();
             }
             catch
             {

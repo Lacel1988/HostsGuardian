@@ -1,12 +1,15 @@
-﻿using System.Windows;
+using System.Windows;
 
-namespace HostsGuardian.Wpf
+namespace HostsGuardian.Wpf;
+
+public partial class MainWindow : Window
 {
-    public partial class MainWindow : Window
+    private void EngineSettings_Click(object sender, RoutedEventArgs e)
     {
-        public MainWindow()
-        {
-            InitializeComponent();
-        }
+        if (DataContext is HostsGuardian.Wpf.ViewModels.MainViewModel vm) vm.OpenEngineSettings();
+    }
+    public MainWindow()
+    {
+        InitializeComponent();
     }
 }

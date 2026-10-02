@@ -12,9 +12,24 @@ namespace HostsGuardian.Wpf.Converters
 
         public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
         {
-            var b = value is bool bb && bb;
+            bool b;
 
-            if (parameter is string s && s.Equals("invert", StringComparison.OrdinalIgnoreCase))
+            if (value is bool bb)
+            {
+                b = bb;
+            }
+            else if (value is null)
+            {
+                b = false;
+            }
+            else
+            {
+                // Covers bool? boxed cases and odd bindings
+                var s = value.ToString();
+                b = string.Equals(s, "True", StringComparison.OrdinalIgnoreCase);
+            }
+
+            if (parameter is string p && string.Equals(p, "invert", StringComparison.OrdinalIgnoreCase))
                 b = !b;
 
             if (Invert) b = !b;
@@ -24,6 +39,14 @@ namespace HostsGuardian.Wpf.Converters
         }
 
         public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
-            => value is Visibility v && v == Visibility.Visible;
+        {
+            if (value is Visibility v)
+            {
+                var b = v == Visibility.Visible;
+                return Invert ? !b : b;
+            }
+
+            return false;
+        }
     }
 }

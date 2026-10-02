@@ -1,132 +1,187 @@
-﻿using System;
-using System.IO;
-using System.Text;
+﻿using System.Text;
 using HostsGuardian.Core.Models;
 
 namespace HostsGuardian.Core.Services;
 
 public sealed class HostsService
 {
-    public const string BeginMarker = "# HOSTSGUARDIAN BEGIN";
-    public const string EndMarker = "# HOSTSGUARDIAN END";
+    private const string StartMarker = "# BEGIN HOSTSGUARDIAN";
+    private const string EndMarker = "# END HOSTSGUARDIAN";
+    private const string LegacyStart = "# HOSTSGUARDIAN BEGIN";
+    private const string LegacyEnd = "# HOSTSGUARDIAN END";
+    private readonly string _hostsPath;
 
-    public bool IsBlockPresent()
+    // An alternate path allows safe fixture tests without touching the system hosts file.
+    public HostsService(string? hostsPath = null) => _hostsPath = hostsPath ?? PathsService.HostsPath;
+
+    public sealed class PreviewInfo
     {
-        var text = File.Exists(PathsService.HostsPath) ? File.ReadAllText(PathsService.HostsPath) : "";
-        return text.Contains(BeginMarker) && text.Contains(EndMarker);
+        public bool BlockPresent { get; set; }
+        public int DomainCount { get; set; }
+        public string PreviewText { get; set; } = "";
+    }
+
+    public bool IsBlockPresent() => ParseSections(File.ReadAllText(_hostsPath)).Count > 0;
+
+    public string PreviewResult(AppConfig cfg) => PreviewResult(DomainPolicySelection.ForHosts(cfg.BlockedDomains)).PreviewText;
+
+    public PreviewInfo PreviewResult(IEnumerable<string>? domains)
+    {
+        var list = ValidateDomains(domains);
+        var original = File.ReadAllText(_hostsPath);
+        return new PreviewInfo
+        {
+            BlockPresent = ParseSections(original).Count > 0,
+            DomainCount = list.Length,
+            PreviewText = Merge(original, list)
+        };
+    }
+
+    public (bool ok, string message) Apply(AppConfig cfg)
+    {
+        try { return Apply(DomainPolicySelection.ForHosts(cfg.BlockedDomains)); }
+        catch (Exception ex) { return (false, ex.Message); }
+    }
+
+    public (bool ok, string message) Apply(IEnumerable<string> domains) => ApplyBlockedDomains(domains);
+
+    public (bool ok, string message) ApplyBlockedDomains(IEnumerable<string> domains)
+    {
+        try
+        {
+            var list = ValidateDomains(domains);
+            var original = File.ReadAllText(_hostsPath);
+            var merged = Merge(original, list); // Validate ownership before any backup/write.
+            var backup = CreateBackup();
+            File.WriteAllText(_hostsPath, merged, ReadEncoding());
+            if (File.ReadAllText(_hostsPath) != merged) throw new IOException("Hosts verification failed.");
+            return (true, $"Applied {list.Length} selected hosts domain(s). Backup: {backup}");
+        }
+        catch (Exception ex) { return (false, ex.Message); }
+    }
+
+    public (bool ok, string message) Revert()
+    {
+        try
+        {
+            var original = File.ReadAllText(_hostsPath);
+            var stripped = RemoveGuardianBlocks(original);
+            if (stripped == original) return (true, "No HostsGuardian block to remove.");
+            var backup = CreateBackup();
+            File.WriteAllText(_hostsPath, stripped, ReadEncoding());
+            if (File.ReadAllText(_hostsPath) != stripped) throw new IOException("Hosts revert verification failed.");
+            return (true, $"HostsGuardian blocks removed. Backup: {backup}");
+        }
+        catch (Exception ex) { return (false, ex.Message); }
+    }
+
+    private Encoding ReadEncoding()
+    {
+        var prefix = new byte[4];
+        using var stream = File.OpenRead(_hostsPath);
+        var count = stream.Read(prefix, 0, prefix.Length);
+        if (count >= 4 && prefix.SequenceEqual(new byte[] { 0xFF, 0xFE, 0, 0 })) return Encoding.UTF32;
+        if (count >= 4 && prefix.SequenceEqual(new byte[] { 0, 0, 0xFE, 0xFF })) return new UTF32Encoding(true, true);
+        if (count >= 3 && prefix[0] == 0xEF && prefix[1] == 0xBB && prefix[2] == 0xBF) return new UTF8Encoding(true);
+        if (count >= 2 && prefix[0] == 0xFF && prefix[1] == 0xFE) return Encoding.Unicode;
+        if (count >= 2 && prefix[0] == 0xFE && prefix[1] == 0xFF) return Encoding.BigEndianUnicode;
+        return new UTF8Encoding(false);
     }
 
     public string CreateBackup()
     {
-        var ts = DateTime.Now.ToString("yyyyMMdd_HHmmss");
-        var backupPath = Path.Combine(PathsService.HostsDir, $"hosts.backup_{ts}");
-        File.Copy(PathsService.HostsPath, backupPath, overwrite: false);
-        return backupPath;
+        var backup = _hostsPath + ".backup_" + DateTime.UtcNow.ToString("yyyyMMdd_HHmmss_fff") + "_" + Guid.NewGuid().ToString("N");
+        File.Copy(_hostsPath, backup, overwrite: false);
+        return backup;
     }
 
-    public string BuildBlock(IEnumerable<DomainEntry> domains)
+    public IReadOnlyList<string> ReadCurrentBlockedDomains()
     {
-        var clean = domains
-            .Select(d => NormalizeDomain(d.Domain))
-            .Where(d => !string.IsNullOrWhiteSpace(d))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .OrderBy(d => d, StringComparer.OrdinalIgnoreCase)
-            .ToList();
-
-        var sb = new StringBuilder();
-        sb.AppendLine(BeginMarker);
-        sb.AppendLine("# Generated by HostsGuardian");
-        sb.AppendLine("# IPv4 + IPv6 loopback entries");
-
-        foreach (var dom in clean)
+        var text = File.ReadAllText(_hostsPath);
+        var domains = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var section in ParseSections(text))
         {
-            sb.AppendLine($"127.0.0.1 {dom}");
-            sb.AppendLine($"127.0.0.1 www.{dom}");
-            sb.AppendLine($"::1 {dom}");
-            sb.AppendLine($"::1 www.{dom}");
+            foreach (var line in text.Substring(section.start, section.length).Split('\n'))
+            {
+                var parts = line.Trim().Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+                if (parts.Length < 2 || parts[0].StartsWith('#')) continue;
+                foreach (var item in parts.Skip(1))
+                {
+                    if (item.StartsWith('#')) break;
+                    var domain = NormalizeDomain(item);
+                    if (domain.Length > 0) domains.Add(domain);
+                }
+            }
         }
-
-        sb.AppendLine(EndMarker);
-        return sb.ToString();
+        return domains.OrderBy(x => x, StringComparer.OrdinalIgnoreCase).ToArray();
     }
 
-    public string PreviewResult(AppConfig cfg)
+    public static string NormalizeDomain(string? raw) => DomainName.Normalize(raw);
+
+    private static string[] ValidateDomains(IEnumerable<string>? input)
     {
-        var current = File.Exists(PathsService.HostsPath) ? File.ReadAllText(PathsService.HostsPath) : "";
-        var stripped = RemoveExistingBlock(current);
-        var block = BuildBlock(cfg.BlockedDomains);
-        var combined = EnsureEndsWithNewline(stripped) + Environment.NewLine + block + Environment.NewLine;
-        return combined;
+        return (input ?? Array.Empty<string>()).Select(raw =>
+        {
+            var domain = NormalizeDomain(raw);
+            if (domain.Length == 0) throw new ArgumentException("Invalid selected hosts domain.");
+            return domain;
+        }).Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(x => x, StringComparer.OrdinalIgnoreCase).ToArray();
     }
 
-    public void Apply(AppConfig cfg)
+    private static string Merge(string original, string[] domains)
     {
-        if (!File.Exists(PathsService.HostsPath))
-            throw new FileNotFoundException("Hosts file not found", PathsService.HostsPath);
-
-        CreateBackup();
-
-        var current = File.ReadAllText(PathsService.HostsPath);
-        var stripped = RemoveExistingBlock(current);
-        var block = BuildBlock(cfg.BlockedDomains);
-
-        var combined = EnsureEndsWithNewline(stripped) + Environment.NewLine + block + Environment.NewLine;
-        File.WriteAllText(PathsService.HostsPath, combined, Encoding.UTF8);
+        var stripped = RemoveGuardianBlocks(original);
+        if (domains.Length == 0) return stripped;
+        var newline = original.Contains("\r\n") ? "\r\n" : "\n";
+        var lines = new List<string> { StartMarker, "# Managed by HostsGuardian; use Revert Hosts to remove." };
+        foreach (var domain in domains)
+        {
+            // Preserve the existing exact-domain + www-alias hosts behavior. No wildcard hosts entries.
+            foreach (var alias in domain.StartsWith("www.", StringComparison.OrdinalIgnoreCase)
+                         ? new[] { domain } : new[] { domain, "www." + domain })
+            {
+                lines.Add("0.0.0.0 " + alias);
+                lines.Add("::1 " + alias);
+            }
+        }
+        lines.Add(EndMarker);
+        return stripped + (stripped.Length > 0 && !stripped.EndsWith('\n') ? newline : "")
+            + string.Join(newline, lines) + newline;
     }
 
-    public void Revert()
+    private static string RemoveGuardianBlocks(string text)
     {
-        if (!File.Exists(PathsService.HostsPath))
-            return;
-
-        CreateBackup();
-
-        var current = File.ReadAllText(PathsService.HostsPath);
-        var stripped = RemoveExistingBlock(current);
-        File.WriteAllText(PathsService.HostsPath, EnsureEndsWithNewline(stripped), Encoding.UTF8);
+        foreach (var section in ParseSections(text).AsEnumerable().Reverse())
+            text = text.Remove(section.start, section.length);
+        return text;
     }
 
-    private static string RemoveExistingBlock(string text)
+    private static List<(int start, int length)> ParseSections(string text)
     {
-        var start = text.IndexOf(BeginMarker, StringComparison.Ordinal);
-        var end = text.IndexOf(EndMarker, StringComparison.Ordinal);
-
-        if (start < 0 || end < 0 || end < start)
-            return text;
-
-        end += EndMarker.Length;
-
-        var before = text[..start].TrimEnd();
-        var after = text[end..].TrimStart();
-
-        if (string.IsNullOrWhiteSpace(before))
-            return after;
-
-        if (string.IsNullOrWhiteSpace(after))
-            return before + Environment.NewLine;
-
-        return before + Environment.NewLine + Environment.NewLine + after;
-    }
-
-    public static string NormalizeDomain(string input)
-    {
-        var d = (input ?? "").Trim().ToLowerInvariant();
-
-        if (d.StartsWith("http://")) d = d["http://".Length..];
-        if (d.StartsWith("https://")) d = d["https://".Length..];
-        if (d.StartsWith("www.")) d = d["www.".Length..];
-
-        var slash = d.IndexOf('/');
-        if (slash >= 0) d = d[..slash];
-
-        d = d.Trim().Trim('.');
-        return d;
-    }
-
-    private static string EnsureEndsWithNewline(string s)
-    {
-        if (string.IsNullOrEmpty(s)) return "";
-        if (s.EndsWith("\r\n") || s.EndsWith("\n")) return s;
-        return s + Environment.NewLine;
+        var sections = new List<(int, int)>();
+        var start = -1;
+        string? expectedEnd = null;
+        for (var offset = 0; offset < text.Length;)
+        {
+            var lineEnd = text.IndexOf('\n', offset);
+            var next = lineEnd < 0 ? text.Length : lineEnd + 1;
+            var line = text.Substring(offset, next - offset).Trim();
+            if (line.Equals(StartMarker, StringComparison.OrdinalIgnoreCase) || line.Equals(LegacyStart, StringComparison.OrdinalIgnoreCase))
+            {
+                if (start >= 0) throw new InvalidDataException("Nested HostsGuardian markers; hosts file left unchanged.");
+                start = offset;
+                expectedEnd = line.Equals(StartMarker, StringComparison.OrdinalIgnoreCase) ? EndMarker : LegacyEnd;
+            }
+            else if (line.Equals(EndMarker, StringComparison.OrdinalIgnoreCase) || line.Equals(LegacyEnd, StringComparison.OrdinalIgnoreCase))
+            {
+                if (start < 0 || !line.Equals(expectedEnd, StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidDataException("Unmatched HostsGuardian markers; hosts file left unchanged.");
+                sections.Add((start, next - start));
+                start = -1;
+            }
+            offset = next;
+        }
+        if (start >= 0) throw new InvalidDataException("Incomplete HostsGuardian block; hosts file left unchanged.");
+        return sections;
     }
 }

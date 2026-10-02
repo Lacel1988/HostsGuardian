@@ -18,5 +18,7 @@ namespace HostsGuardian.Wpf.ViewModels
         public string Message { get; set; } = "";
 
         public string Header => $"{AtUtc:yyyy-MM-dd HH:mm:ss}  [{Level}]";
+
+        public string Time => AtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss");
     }
 }

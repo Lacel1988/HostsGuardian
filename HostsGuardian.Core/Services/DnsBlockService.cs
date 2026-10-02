@@ -17,7 +17,6 @@ namespace HostsGuardian.Core.Services
             foreach (var d in clean)
             {
                 sb.AppendLine($"0.0.0.0 {d}");
-                sb.AppendLine($"0.0.0.0 www.{d}");
             }
 
             return sb.ToString();
@@ -33,7 +32,6 @@ namespace HostsGuardian.Core.Services
             foreach (var d in clean)
             {
                 sb.AppendLine($"||{d}^");
-                sb.AppendLine($"||www.{d}^");
             }
 
             return sb.ToString();
@@ -42,6 +40,7 @@ namespace HostsGuardian.Core.Services
         private static List<string> Normalize(IEnumerable<DomainEntry> domains)
         {
             return domains
+                .Where(d => d.DnsBlocked)
                 .Select(d => HostsService.NormalizeDomain(d.Domain))
                 .Where(d => !string.IsNullOrWhiteSpace(d))
                 .Distinct()

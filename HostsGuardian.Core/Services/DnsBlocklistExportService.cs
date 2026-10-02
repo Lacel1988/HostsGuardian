@@ -12,6 +12,7 @@ namespace HostsGuardian.Core.Services
         public string ExportDomainsPlain(IEnumerable<DomainEntry> domains)
         {
             var clean = (domains ?? Enumerable.Empty<DomainEntry>())
+                .Where(d => d != null && d.DnsBlocked)
                 .Select(d => (d?.Domain ?? "").Trim())
                 .Where(d => !string.IsNullOrWhiteSpace(d))
                 .Select(HostsService.NormalizeDomain)
@@ -36,6 +37,7 @@ namespace HostsGuardian.Core.Services
         public string ExportHostsStyle(IEnumerable<DomainEntry> domains)
         {
             var clean = (domains ?? Enumerable.Empty<DomainEntry>())
+                .Where(d => d != null && d.DnsBlocked)
                 .Select(d => (d?.Domain ?? "").Trim())
                 .Where(d => !string.IsNullOrWhiteSpace(d))
                 .Select(HostsService.NormalizeDomain)
@@ -53,7 +55,6 @@ namespace HostsGuardian.Core.Services
             foreach (var dom in clean)
             {
                 sb.AppendLine("0.0.0.0 " + dom);
-                sb.AppendLine("0.0.0.0 www." + dom);
             }
 
             return sb.ToString();

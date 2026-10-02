@@ -11,7 +11,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace HostsGuardian.Wpf.Services
+namespace HostsGuardian.Core.Services
 {
     public sealed class RouterDetectionService
     {

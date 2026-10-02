@@ -1,294 +1,190 @@
-﻿using System;
+﻿using HostsGuardian.Core.Models;
+using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Net;
 using System.Net.NetworkInformation;
+using System.Text.RegularExpressions;
+using System.Threading;
 using System.Threading.Tasks;
-using HostsGuardian.Core.Models;
 
 namespace HostsGuardian.Core.Services;
 
 public sealed class NetworkScanService
 {
-    public IReadOnlyList<NetworkDevice> ScanLanBestEffort(int maxHostsToProbe = 64, int timeoutMs = 120)
+    public List<DeviceInfo> ScanLanBestEffort(int maxHostsToProbe = 96, int timeoutMs = 140)
     {
-        var gateway = GetDefaultGatewayIPv4();
-        var candidates = new List<IPAddress>();
+        var (gateway, localIp) = GetGatewayAndLocalIp();
+        if (string.IsNullOrWhiteSpace(gateway) || string.IsNullOrWhiteSpace(localIp))
+            return new List<DeviceInfo>();
 
-        if (gateway != null)
-        {
-            var bytes = gateway.GetAddressBytes();
-            if (bytes.Length == 4)
-            {
-                for (int i = 1; i <= 254; i++)
-                {
-                    if (i == bytes[3]) continue;
-                    candidates.Add(new IPAddress(new byte[] { bytes[0], bytes[1], bytes[2], (byte)i }));
-                }
-            }
-        }
+        var prefix = Get24Prefix(localIp);
+        if (string.IsNullOrWhiteSpace(prefix))
+            return new List<DeviceInfo>();
 
-        var arpIps = GetArpCacheIPs().ToList();
-        foreach (var ip in arpIps)
-            if (!candidates.Contains(ip)) candidates.Add(ip);
-
-        candidates = candidates
-            .Distinct()
-            .Where(ip => ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork)
-            .Take(Math.Max(1, maxHostsToProbe))
+        // 1) ping sweep (kicsi, gyors, nem bánt semmit)
+        var ips = Enumerable.Range(1, Math.Min(254, maxHostsToProbe))
+            .Select(i => prefix + i.ToString())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        var results = new List<NetworkDevice>();
+        var online = new List<(string ip, int ms)>();
 
-        // Include gateway first
-        if (gateway != null)
+        var sem = new SemaphoreSlim(24);
+        var tasks = ips.Select(async ip =>
         {
-            results.Add(new NetworkDevice
+            await sem.WaitAsync().ConfigureAwait(false);
+            try
             {
-                Ip = gateway.ToString(),
+                using var p = new Ping();
+                var reply = await p.SendPingAsync(ip, timeoutMs).ConfigureAwait(false);
+                if (reply.Status == IPStatus.Success)
+                {
+                    lock (online)
+                        online.Add((ip, (int)reply.RoundtripTime));
+                }
+            }
+            catch { }
+            finally { sem.Release(); }
+        }).ToArray();
+
+        Task.WaitAll(tasks, TimeSpan.FromSeconds(10));
+
+        // 2) friss ARP táblából MAC-ek
+        var arp = ReadArpTable();
+
+        // 3) reverse DNS hostname best effort
+        var results = new List<DeviceInfo>();
+
+        foreach (var (ip, ms) in online.OrderBy(x => x.ip, StringComparer.OrdinalIgnoreCase))
+        {
+            arp.TryGetValue(ip, out var mac);
+
+            var hostname = TryReverseDns(ip);
+
+            results.Add(new DeviceInfo
+            {
+                Ip = ip,
+                Mac = mac ?? "",
+                Hostname = hostname ?? "",
+                IsOnline = true,
+                PingMs = ms
+            });
+        }
+
+        // router/gateway is látszódjon akkor is, ha nem válaszolt pingre
+        if (!results.Any(x => x.Ip == gateway))
+        {
+            arp.TryGetValue(gateway, out var mac);
+            results.Insert(0, new DeviceInfo
+            {
+                Ip = gateway,
+                Mac = mac ?? "",
                 Hostname = "Gateway",
+                IsOnline = true,
+                PingMs = -1
             });
         }
 
-        foreach (var ip in candidates)
-        {
-            if (gateway != null && ip.Equals(gateway))
-                continue;
-
-            bool alive = false;
-            try
-            {
-                using var ping = new Ping();
-                var reply = ping.Send(ip, timeoutMs);
-                alive = reply != null && reply.Status == IPStatus.Success;
-            }
-            catch
-            {
-                alive = false;
-            }
-
-            if (!alive)
-                continue;
-
-            results.Add(new NetworkDevice
-            {
-                Ip = ip.ToString(),
-            });
-        }
-
-        // Attach MACs from ARP cache
-        var arp = GetArpCache();
-        foreach (var d in results)
-        {
-            if (arp.TryGetValue(d.Ip, out var mac))
-                d.Mac = mac;
-        }
-
-        // Best-effort: Hostname + VendorHint
-        FillHostnamesBestEffort(results, perHostTimeoutMs: 250);
-        FillVendorHints(results);
-
-        // Keep gateway first (if present)
-        return results
-            .OrderByDescending(x => gateway != null && string.Equals(x.Ip, gateway.ToString(), StringComparison.OrdinalIgnoreCase))
-            .ThenBy(x => x.Ip, StringComparer.OrdinalIgnoreCase)
-            .ToList();
+        return results;
     }
 
-    public IPAddress? GetDefaultGatewayIPv4()
+    private static string? TryReverseDns(string ip)
     {
         try
         {
-            foreach (var ni in NetworkInterface.GetAllNetworkInterfaces())
-            {
-                if (ni.OperationalStatus != OperationalStatus.Up)
-                    continue;
-
-                var props = ni.GetIPProperties();
-                var gw = props.GatewayAddresses
-                    .Select(g => g.Address)
-                    .FirstOrDefault(a => a != null &&
-                                         a.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork &&
-                                         !IPAddress.IsLoopback(a));
-
-                if (gw != null)
-                    return gw;
-            }
+            return ResolveHostnameAsync(ip, TimeSpan.FromMilliseconds(250)).GetAwaiter().GetResult();
         }
-        catch { }
-        return null;
+        catch { return ""; }
     }
 
-    private void FillHostnamesBestEffort(IReadOnlyList<NetworkDevice> devices, int perHostTimeoutMs)
+    public static async Task<string> ResolveHostnameAsync(string ip, TimeSpan timeout,
+        Func<string, CancellationToken, Task<IPHostEntry>>? lookup = null)
     {
-        foreach (var d in devices)
-        {
-            if (!string.IsNullOrWhiteSpace(d.Hostname))
-                continue;
-
-            if (!IPAddress.TryParse(d.Ip, out var ip))
-                continue;
-
-            // Avoid blocking UI: keep it short and best-effort
-            try
-            {
-                var name = ResolveReverseDnsWithTimeout(ip, perHostTimeoutMs);
-                if (!string.IsNullOrWhiteSpace(name))
-                    d.Hostname = name;
-            }
-            catch
-            {
-                // ignore
-            }
-        }
-    }
-
-    private static string? ResolveReverseDnsWithTimeout(IPAddress ip, int timeoutMs)
-    {
+        using var deadline = new CancellationTokenSource(timeout);
         try
         {
-            var task = Task.Run(() =>
-            {
-                try
-                {
-                    var entry = Dns.GetHostEntry(ip);
-                    var hn = entry?.HostName;
-                    if (string.IsNullOrWhiteSpace(hn)) return null;
-
-                    // normalize "host." endings
-                    hn = hn.Trim().TrimEnd('.');
-                    return hn;
-                }
-                catch
-                {
-                    return null;
-                }
-            });
-
-            var done = Task.WhenAny(task, Task.Delay(timeoutMs)).GetAwaiter().GetResult();
-            if (done != task) return null;
-
-            return task.GetAwaiter().GetResult();
+            lookup ??= (address, ct) => Dns.GetHostEntryAsync(address, System.Net.Sockets.AddressFamily.Unspecified, ct);
+            var entry = await lookup(ip, deadline.Token).WaitAsync(deadline.Token).ConfigureAwait(false);
+            return (entry.HostName ?? "").Trim().TrimEnd('.');
         }
-        catch
-        {
-            return null;
-        }
+        catch (OperationCanceledException) { return ""; }
+        catch (System.Net.Sockets.SocketException) { return ""; }
+        catch (ArgumentException) { return ""; }
     }
 
-    private void FillVendorHints(IReadOnlyList<NetworkDevice> devices)
-    {
-        foreach (var d in devices)
-        {
-            if (!string.IsNullOrWhiteSpace(d.VendorHint))
-                continue;
-
-            var oui = GetOuiPrefix(d.Mac);
-            if (oui == null) continue;
-
-            if (OuiVendors.TryGetValue(oui, out var vendor))
-                d.VendorHint = vendor;
-        }
-    }
-
-    private static string? GetOuiPrefix(string? mac)
-    {
-        if (string.IsNullOrWhiteSpace(mac)) return null;
-
-        // mac expected like "aa:bb:cc:dd:ee:ff"
-        var s = mac.Trim().ToLowerInvariant().Replace("-", ":");
-        var parts = s.Split(':', StringSplitOptions.RemoveEmptyEntries);
-        if (parts.Length < 3) return null;
-
-        // validate hex-ish quickly
-        if (parts[0].Length != 2 || parts[1].Length != 2 || parts[2].Length != 2) return null;
-
-        return $"{parts[0]}:{parts[1]}:{parts[2]}";
-    }
-
-    // Minimal starter set, bővíthetjük folyamatosan
-    private static readonly Dictionary<string, string> OuiVendors = new(StringComparer.OrdinalIgnoreCase)
-    {
-        // TP-Link (gyakori)
-        ["a0:ab:1b"] = "TP-Link",
-        ["50:c7:bf"] = "TP-Link",
-
-        // Apple (példák, nem teljes)
-        ["a4:5e:60"] = "Apple",
-        ["d0:23:db"] = "Apple",
-
-        // Samsung (példák)
-        ["d8:bb:2c"] = "Samsung",
-        ["30:07:4d"] = "Samsung",
-
-        // Xiaomi (példák)
-        ["3c:cd:5d"] = "Xiaomi",
-
-        // Huawei (példák)
-        ["f4:6a:dd"] = "Huawei",
-
-        // Google/Nest (példák)
-        ["f4:f5:d8"] = "Google",
-
-        // Microsoft/Xbox (példák)
-        ["7c:1e:52"] = "Microsoft",
-
-        // Sony/PlayStation (példák)
-        ["0c:fe:45"] = "Sony",
-    };
-
-    private IEnumerable<IPAddress> GetArpCacheIPs()
-    {
-        foreach (var kv in GetArpCache())
-        {
-            if (IPAddress.TryParse(kv.Key, out var ip))
-                yield return ip;
-        }
-    }
-
-    private Dictionary<string, string> GetArpCache()
+    private static Dictionary<string, string> ReadArpTable()
     {
         var dict = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
         try
         {
-            var psi = new System.Diagnostics.ProcessStartInfo
+            var psi = new ProcessStartInfo
             {
                 FileName = "arp",
                 Arguments = "-a",
                 UseShellExecute = false,
-                CreateNoWindow = true,
-                RedirectStandardOutput = true
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true
             };
 
-            using var p = System.Diagnostics.Process.Start(psi);
+            using var p = Process.Start(psi);
             if (p == null) return dict;
 
             var text = p.StandardOutput.ReadToEnd();
             p.WaitForExit(2000);
 
-            var lines = text.Split(new[] { "\r\n", "\n" }, StringSplitOptions.RemoveEmptyEntries);
-            foreach (var line in lines)
+            // arp -a (Windows) tipikus sor:
+            //  192.168.1.1           40-c2-ba-xx-xx-xx     dynamic
+            var rx = new Regex(@"\b(?<ip>\d{1,3}(\.\d{1,3}){3})\s+(?<mac>([0-9a-f]{2}-){5}[0-9a-f]{2})\b",
+                RegexOptions.IgnoreCase);
+
+            foreach (Match m in rx.Matches(text))
             {
-                var s = line.Trim();
-                if (s.Length == 0) continue;
-                if (!char.IsDigit(s[0])) continue;
-
-                var parts = s.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
-                if (parts.Length < 2) continue;
-
-                var ip = parts[0].Trim();
-                var mac = parts[1].Trim();
-
-                if (IPAddress.TryParse(ip, out _))
-                {
-                    mac = mac.Replace('-', ':').ToLowerInvariant();
-                    dict[ip] = mac;
-                }
+                var ip = m.Groups["ip"].Value.Trim();
+                var mac = m.Groups["mac"].Value.Trim().ToLowerInvariant();
+                if (!dict.ContainsKey(ip)) dict[ip] = mac;
             }
         }
         catch { }
 
         return dict;
+    }
+
+    private static (string gateway, string localIp) GetGatewayAndLocalIp()
+    {
+        try
+        {
+            foreach (var ni in NetworkInterface.GetAllNetworkInterfaces())
+            {
+                if (ni.OperationalStatus != OperationalStatus.Up) continue;
+                if (ni.NetworkInterfaceType == NetworkInterfaceType.Loopback) continue;
+
+                var ipProps = ni.GetIPProperties();
+                var gw = ipProps.GatewayAddresses
+                    .Select(g => g.Address)
+                    .FirstOrDefault(a => a != null && a.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork);
+
+                var ip = ipProps.UnicastAddresses
+                    .Select(u => u.Address)
+                    .FirstOrDefault(a => a != null && a.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork);
+
+                if (gw != null && ip != null)
+                    return (gw.ToString(), ip.ToString());
+            }
+        }
+        catch { }
+
+        return ("", "");
+    }
+
+    private static string Get24Prefix(string ip)
+    {
+        // 192.168.1.52 -> 192.168.1.
+        var parts = (ip ?? "").Split('.');
+        if (parts.Length != 4) return "";
+        return $"{parts[0]}.{parts[1]}.{parts[2]}.";
     }
 }

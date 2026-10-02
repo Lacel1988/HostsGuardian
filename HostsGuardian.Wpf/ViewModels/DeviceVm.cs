@@ -1,97 +1,189 @@
-﻿using HostsGuardian.Core.Models;
+﻿using System;
+using HostsGuardian.Core.Models;
 using HostsGuardian.Wpf.Infrastructure;
 
-namespace HostsGuardian.Wpf.ViewModels
+namespace HostsGuardian.Wpf.ViewModels;
+
+public sealed class DeviceVm : ObservableObject
 {
-    public sealed class DeviceVm : ObservableObject
+    private readonly NetworkDevice _dev;
+
+    // ==== Core identity ====
+    public string Ip => _dev.Ip;
+
+    public string Mac
     {
-        private readonly NetworkDevice _device;
-
-        public string Ip => _device.Ip;
-        public string Mac
+        get => _dev.Mac;
+        set
         {
-            get => _device.Mac;
-            set
+            var v = value ?? "";
+            if (!string.Equals(_dev.Mac, v, StringComparison.OrdinalIgnoreCase))
             {
-                if (_device.Mac != value)
-                {
-                    _device.Mac = value ?? "";
-                    OnPropertyChanged(nameof(Mac));
-                }
+                _dev.Mac = v;
+                OnPropertyChanged();
+                RecalcKindAndPresentation();
             }
         }
+    }
 
-        public string Hostname
+    public string Hostname
+    {
+        get => _dev.Hostname;
+        set
         {
-            get => _device.Hostname;
-            set
+            var v = value ?? "";
+            if (!string.Equals(_dev.Hostname, v, StringComparison.OrdinalIgnoreCase))
             {
-                if (_device.Hostname != value)
-                {
-                    _device.Hostname = value ?? "";
-                    OnPropertyChanged(nameof(Hostname));
-                    OnPropertyChanged(nameof(DisplayName));
-                }
+                _dev.Hostname = v;
+                OnPropertyChanged();
+                RecalcKindAndPresentation();
             }
         }
+    }
 
-        public string VendorHint
+    public string VendorHint
+    {
+        get => _dev.VendorHint;
+        set
         {
-            get => _device.VendorHint;
-            set
+            var v = value ?? "";
+            if (!string.Equals(_dev.VendorHint, v, StringComparison.OrdinalIgnoreCase))
             {
-                if (_device.VendorHint != value)
-                {
-                    _device.VendorHint = value ?? "";
-                    OnPropertyChanged(nameof(VendorHint));
-                    OnPropertyChanged(nameof(DisplayName));
-                }
+                _dev.VendorHint = v;
+                OnPropertyChanged();
+                RecalcKindAndPresentation();
             }
         }
+    }
 
-        // Felhasználó által adott "név" (policy)
-        private string _name = "";
-        public string Name
+    // ==== Policy fields (persisted in config.json) ====
+    private string _name = "";
+    public string Name
+    {
+        get => _name;
+        set
         {
-            get => _name;
-            set
+            var v = value ?? "";
+            if (Set(ref _name, v))
             {
-                if (Set(ref _name, value ?? ""))
-                    OnPropertyChanged(nameof(DisplayName));
+                RecalcKindAndPresentation();
             }
         }
+    }
 
-        private bool _dnsBlocked;
-        public bool DnsBlocked
-        {
-            get => _dnsBlocked;
-            set => Set(ref _dnsBlocked, value);
-        }
+    private bool _dnsBlocked;
+    public bool DnsBlocked
+    {
+        get => _dnsBlocked;
+        set => Set(ref _dnsBlocked, value);
+    }
 
-        // UI-ban hasznos: ha a Name üres, akkor Hostname, ha az is üres, akkor IP
-        public string DisplayName
+    // ==== Presentation ====
+    private DeviceKind _kind = DeviceKind.Unknown;
+    public DeviceKind Kind
+    {
+        get => _kind;
+        private set
         {
-            get
+            if (Set(ref _kind, value))
             {
-                if (!string.IsNullOrWhiteSpace(Name)) return Name;
-                if (!string.IsNullOrWhiteSpace(Hostname)) return Hostname;
-                return Ip;
+                OnPropertyChanged(nameof(Icon));
+                OnPropertyChanged(nameof(DisplayName));
             }
         }
+    }
 
-        // EZ A KONSTRUKTOR KELL a MainViewModel-hez lentebb:
-        public DeviceVm(NetworkDevice device, string? policyName, string? policyMac, bool dnsBlocked)
+    // Emoji icon that ALWAYS renders (with Segoe UI Emoji in XAML)
+    public string Icon => Kind switch
+    {
+        DeviceKind.Router => "📡",
+        DeviceKind.Pc => "🖥️",
+        DeviceKind.Laptop => "💻",
+        DeviceKind.Phone => "📱",
+        DeviceKind.Tablet => "📲",
+        DeviceKind.Tv => "📺",
+        DeviceKind.Console => "🎮",
+        DeviceKind.Printer => "🖨️",
+        DeviceKind.IoT => "🔌",
+        _ => "❓"
+    };
+
+    public string DisplayName
+    {
+        get
         {
-            _device = device;
-
-            Name = policyName ?? "";
-            if (!string.IsNullOrWhiteSpace(policyMac) && string.IsNullOrWhiteSpace(_device.Mac))
-                _device.Mac = policyMac!;
-
-            DnsBlocked = dnsBlocked;
+            if (!string.IsNullOrWhiteSpace(Name)) return Name.Trim();
+            if (!string.IsNullOrWhiteSpace(Hostname)) return Hostname.Trim();
+            if (!string.IsNullOrWhiteSpace(VendorHint)) return VendorHint.Trim();
+            return Ip;
         }
+    }
 
-        // Ezt akkor hívjuk, amikor mentjük vissza config.json-be
-        public NetworkDevice AsDevice() => _device;
+    public DeviceVm(NetworkDevice dev, string? policyName, bool isBlocked)
+    {
+        _dev = dev ?? throw new ArgumentNullException(nameof(dev));
+
+        _name = policyName ?? "";
+        _dnsBlocked = isBlocked;
+
+        RecalcKindAndPresentation();
+    }
+
+    // ---- Heuristics ----
+    private void RecalcKindAndPresentation()
+    {
+        Kind = GuessKind();
+
+        // ha a Kind nem változik, attól még lehet a DisplayName változott
+        OnPropertyChanged(nameof(Icon));
+        OnPropertyChanged(nameof(DisplayName));
+    }
+
+    private DeviceKind GuessKind()
+    {
+        var s = $"{Name} {Hostname} {VendorHint}".ToLowerInvariant();
+
+        // Router/gateway hints
+        if (s.Contains("router") || s.Contains("gateway") || s.Contains("t-home") || s.Contains("telekom") || s.Contains("speedport"))
+            return DeviceKind.Router;
+
+        // Consoles
+        if (s.Contains("xbox") || s.Contains("playstation") || s.Contains("ps5") || s.Contains("ps4") || s.Contains("nintendo") || s.Contains("switch"))
+            return DeviceKind.Console;
+
+        // TV / media
+        if (s.Contains("chromecast") || s.Contains("firetv") || s.Contains("bravia") || s.Contains("android tv") || s.Contains("smart tv"))
+            return DeviceKind.Tv;
+
+        // LG webOS (zárójel: különben félremehet)
+        if (s.Contains("lg") && s.Contains("webos"))
+            return DeviceKind.Tv;
+
+        if (s.Contains("tv"))
+            return DeviceKind.Tv;
+
+        // Printers
+        if (s.Contains("printer") || (s.Contains("hp") && s.Contains("print")) || s.Contains("epson") || s.Contains("canon") || s.Contains("brother"))
+            return DeviceKind.Printer;
+
+        // Phones/tablets
+        if (s.Contains("iphone") || s.Contains("android") || s.Contains("samsung") || s.Contains("xiaomi") || s.Contains("huawei") || s.Contains("pixel") || s.Contains("s22"))
+            return DeviceKind.Phone;
+
+        if (s.Contains("ipad") || s.Contains("tablet"))
+            return DeviceKind.Tablet;
+
+        // Laptops/PC
+        if (s.Contains("legion") || s.Contains("thinkpad") || s.Contains("laptop") || s.Contains("notebook") || s.Contains("vivobook"))
+            return DeviceKind.Laptop;
+
+        if (s.Contains("pc") || s.Contains("desktop") || s.Contains("windows"))
+            return DeviceKind.Pc;
+
+        // IoT
+        if (s.Contains("iot") || s.Contains("camera") || s.Contains("bulb") || s.Contains("plug") || s.Contains("tuya") || s.Contains("sonoff"))
+            return DeviceKind.IoT;
+
+        return DeviceKind.Unknown;
     }
 }

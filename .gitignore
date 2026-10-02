@@ -361,3 +361,85 @@ MigrationBackup/
 
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
+# HostsGuardian local security material (scoped; source/test certificates remain eligible)
+/credentials/
+/certificates/
+/trust/
+/enrollment/
+/secrets/
+/management-token
+/management-token.*
+/engine-certificate.pem
+/engine-certificate-key.pem
+/HostsGuardian.DnsEngine/credentials/
+/HostsGuardian.DnsEngine/certificates/
+/HostsGuardian.DnsEngine/secrets/
+/HostsGuardian.DnsEngine/management-token
+/HostsGuardian.DnsEngine/engine-certificate*.pem
+
+# HostsGuardian local runtime configuration and committed policy
+/runtime/
+/HostsGuardian.DnsEngine/runtime/
+/HostsGuardian.Wpf/runtime/
+/config.json
+/config.local.json
+/status.json
+/policy.json
+/policy.json.rejected-*
+/.policy-*.tmp
+/HostsGuardian.DnsEngine/config.local.json
+/HostsGuardian.DnsEngine/policy.json
+/HostsGuardian.DnsEngine/policy.json.rejected-*
+/HostsGuardian.DnsEngine/.policy-*.tmp
+/HostsGuardian.Wpf/config.json
+/HostsGuardian.Wpf/status.json
+/hostsguardian_activity.json
+/hostsguardian_activity.csv
+
+# Local environment overrides; documented example files are not covered
+/.env
+/.env.local
+/.env.*.local
+/HostsGuardian.DnsEngine/.env
+/HostsGuardian.DnsEngine/.env.local
+/HostsGuardian.DnsEngine/.env.*.local
+
+# One-time preparation, snapshots and editing helpers
+/checkpoints/
+/staging/
+/checkpoint-cleanup/
+/engine-preparation/
+/phase5a/
+/phase5b/
+/phase5c/
+/HostsGuardian-pre-codex-*/
+/phase12_edit.py
+/phase12_tests.py
+/phase12_finish.py
+
+
+# Additional explicitly named local Engine/WPF and fixture material
+/HostsGuardian.DnsEngine/trust/
+/HostsGuardian.DnsEngine/enrollment/
+/HostsGuardian.DnsEngine/config.json
+/HostsGuardian.DnsEngine/status.json
+/HostsGuardian.Wpf/credentials/
+/HostsGuardian.Wpf/trust/
+/HostsGuardian.Wpf/enrollment/
+/HostsGuardian.Wpf/config.local.json
+/temporary-token
+/temporary-cert.pem
+/temporary-key.pem
+/phase5a_*.py
+/phase5b_*.py
+/phase5c_*.py
+
+# Environment files at known application roots; retain publishable templates
+/.env.*
+!/.env.example
+!/.env.sample
+!/.env.template
+/HostsGuardian.DnsEngine/.env.*
+!/HostsGuardian.DnsEngine/.env.example
+!/HostsGuardian.DnsEngine/.env.sample
+!/HostsGuardian.DnsEngine/.env.template
