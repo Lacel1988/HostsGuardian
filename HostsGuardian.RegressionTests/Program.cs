@@ -235,6 +235,7 @@ try
     await Phase5ATests.Run(Test, AsyncTest, fixtureRoot);
     await Phase5BTests.Run(Test, AsyncTest, fixtureRoot);
     await Phase5CTests.Run(Test, AsyncTest, fixtureRoot);
+    await Phase5DTests.Run(Test, AsyncTest, fixtureRoot);
     Console.WriteLine($"{passed} regression groups passed. No system hosts, real DNS, or deployment service was changed.");
 }
 finally { Console.WriteLine("Isolated fixture directory: " + fixtureRoot); }
@@ -245,9 +246,15 @@ sealed class RecordingHandler : HttpMessageHandler
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
         Requests.Add((request.Method, request.RequestUri!.AbsolutePath, request.Content == null ? "" : await request.Content.ReadAsStringAsync(cancellationToken)));
+        var selectedCount = 0;
+        if (request.Method == HttpMethod.Post)
+        {
+            using var selected = JsonDocument.Parse(Requests.Last().body);
+            selectedCount = selected.RootElement.GetProperty("blocked").GetArrayLength();
+        }
         var body = request.RequestUri!.AbsolutePath == "/dns/status"
             ? JsonSerializer.Serialize(new DnsServiceStatus { Implementation = "HostsGuardian.DnsEngine", DnsPort = 53, TcpTargetPort = 53, ApiPort = 3000 })
-            : request.RequestUri!.AbsolutePath == "/health" ? "{\"engine\":\"HostsGuardian.DnsEngine\",\"apiVersion\":1}" : "{\"ok\":true,\"blocked\":[]}";
+            : request.RequestUri!.AbsolutePath == "/health" ? "{\"engine\":\"HostsGuardian.DnsEngine\",\"apiVersion\":1}" : JsonSerializer.Serialize(new { ok = true, blocked = Array.Empty<string>(), revision = 1, count = selectedCount });
         return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(body) };
     }
 }

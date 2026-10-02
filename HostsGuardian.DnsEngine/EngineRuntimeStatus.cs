@@ -12,10 +12,13 @@ public sealed class EngineRuntimeStatus : IEngineRuntimeStatus
 {
     private readonly EngineSettings _settings;
     private readonly string _instanceId;
-    private int _udpListening;
-    private int _tcpListening;
-    private int _managementListening;
+    // Lifecycle publication only; no DNS/upstream I/O occurs under this lock.
+    private readonly object _gate = new();
+    private string _udpState = "NotStarted";
+    private string _tcpState = "NotStarted";
+    private string _managementState = "NotStarted";
     private string _runtimeState = "NotStarted";
+
     private readonly EnginePolicyState _policy;
     private readonly UpstreamRuntimeState _upstream;
 
@@ -27,45 +30,60 @@ public sealed class EngineRuntimeStatus : IEngineRuntimeStatus
         _upstream = upstream ?? new UpstreamRuntimeState();
     }
 
-    internal void SetUdpListening(bool listening) => Volatile.Write(ref _udpListening, listening ? 1 : 0);
-    internal void SetTcpListening(bool listening) => Volatile.Write(ref _tcpListening, listening ? 1 : 0);
-    internal void SetManagementListening(bool listening) => Volatile.Write(ref _managementListening, listening ? 1 : 0);
-    internal void SetRuntimeState(string state) => Volatile.Write(ref _runtimeState, state);
+    internal void SetUdpState(string state) { lock (_gate) _udpState = state; }
+    internal void SetTcpState(string state) { lock (_gate) _tcpState = state; }
+    internal void SetManagementState(string state) { lock (_gate) _managementState = state; }
+    internal void SetUdpListening(bool listening)
+    { lock (_gate) if (listening || _udpState != "Faulted") _udpState = listening ? "Listening" : "Stopped"; }
+    internal void SetTcpListening(bool listening)
+    { lock (_gate) if (listening || _tcpState != "Faulted") _tcpState = listening ? "Listening" : "Stopped"; }
+    internal void SetManagementListening(bool listening)
+    { lock (_gate) if (listening || _managementState != "Faulted") _managementState = listening ? "Listening" : "Stopped"; }
+    internal void SetRuntimeState(string state) { lock (_gate) _runtimeState = state; }
 
     public DnsServiceStatus GetSnapshot()
     {
-        var policy = _policy.GetSnapshot();
-        var upstream = _upstream.GetSnapshot();
-        return new DnsServiceStatus
+        lock (_gate)
         {
-            Implementation = "HostsGuardian.DnsEngine",
-            InstanceId = _instanceId,
-            DnsPort = _settings.DnsPort,
-            UdpListening = Volatile.Read(ref _udpListening) == 1,
-            TcpImplemented = true,
-            TcpListening = Volatile.Read(ref _tcpListening) == 1,
-            TcpTargetPort = _settings.DnsPort,
-            ApiPort = _settings.ApiPort,
-            RuntimeState = Volatile.Read(ref _runtimeState),
-            ManagementListening = Volatile.Read(ref _managementListening) == 1,
-            PolicyRestoreState = policy.RestoreState,
-            PolicyLoaded = policy.Loaded,
-            PolicyRevision = policy.Revision,
-            CommittedRuleCount = policy.RuleCount,
-            ActiveRuleCount = policy.ActiveRuleCount,
-            FilteringEnabled = policy.FilteringEnabled,
-            EmergencySafeMode = policy.SafeMode,
-            SafeModeReason = policy.SafeModeReason,
-            PersistenceFault = policy.PersistenceFault,
-            UpstreamHealth = "NotMeasured",
-            UpstreamConfigured = true,
-            FallbackConfigured = _settings.FallbackEndpoint != null,
-            LastUpstreamSuccessUtc = upstream.LastSuccessUtc,
-            LastUpstreamFailureUtc = upstream.LastFailureUtc,
-            LastUpstreamOutcome = upstream.LastOutcome,
-            LastUpstreamFailure = upstream.LastFailure,
-            LastUpstreamRequestUsedFallback = upstream.LastRequestUsedFallback,
-            LastFallbackUseUtc = upstream.LastFallbackUseUtc
-        };
+            var policy = _policy.GetSnapshot();
+            var upstream = _upstream.GetSnapshot();
+            return new DnsServiceStatus
+            {
+                Implementation = "HostsGuardian.DnsEngine",
+                InstanceId = _instanceId,
+                DnsPort = _settings.DnsPort,
+                UdpListening = _udpState == "Listening",
+                TcpImplemented = true,
+                TcpListening = _tcpState == "Listening",
+                TcpTargetPort = _settings.DnsPort,
+                ApiPort = _settings.ApiPort,
+                RuntimeState = _runtimeState == "Running" &&
+                    (_udpState != "Listening" || _tcpState != "Listening" || _managementState != "Listening")
+                    ? "Degraded" : _runtimeState,
+                SnapshotUtc = DateTimeOffset.UtcNow,
+                UdpState = _udpState,
+                TcpState = _tcpState,
+                ManagementState = _managementState,
+                ManagementListening = _managementState == "Listening",
+                PolicyRestoreState = policy.RestoreState,
+                PolicyLoaded = policy.Loaded,
+                PolicyRevision = policy.Revision,
+                CommittedRuleCount = policy.RuleCount,
+                ActiveRuleCount = policy.ActiveRuleCount,
+                FilteringEnabled = policy.FilteringEnabled,
+                EmergencySafeMode = policy.SafeMode,
+                SafeModeReason = policy.SafeModeReason,
+                PersistenceFault = policy.PersistenceFault,
+                UpstreamHealth = "NotMeasured",
+                UpstreamConfigured = true,
+                FallbackConfigured = _settings.FallbackEndpoint != null,
+                LastUpstreamSuccessUtc = upstream.LastSuccessUtc,
+                LastUpstreamFailureUtc = upstream.LastFailureUtc,
+                LastUpstreamOutcome = upstream.LastOutcome,
+                LastUpstreamFailure = upstream.LastFailure,
+                LastUpstreamRequestUsedFallback = upstream.LastRequestUsedFallback,
+                LastFallbackUseUtc = upstream.LastFallbackUseUtc
+            };
+        }
     }
 }

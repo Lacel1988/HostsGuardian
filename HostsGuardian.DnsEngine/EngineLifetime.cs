@@ -28,10 +28,10 @@ public sealed class EngineLifetime
             _dns.RuntimeStatus.SetRuntimeState("Running");
             EngineLog.Information("Engine", "Startup complete");
             var cancellation = Task.Delay(Timeout.Infinite, lifetimeWait.Token);
-            var completed = await Task.WhenAny(cancellation, _dns.Completion, _tcp.Completion);
+            var completed = await Task.WhenAny(cancellation, _api.Completion, _dns.Completion, _tcp.Completion);
             await completed;
             if (!cancellationToken.IsCancellationRequested)
-                throw new InvalidOperationException("DNS listener stopped unexpectedly");
+                throw new InvalidOperationException("Required listener stopped unexpectedly");
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
         catch (Exception)

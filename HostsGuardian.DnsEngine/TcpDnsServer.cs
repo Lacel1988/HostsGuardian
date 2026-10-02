@@ -35,9 +35,10 @@ public sealed class TcpDnsServer : IAsyncDisposable
         try
         {
             if (_listener != null) return;
+            _status.SetTcpState("Starting");
             var listener = new TcpListener(IPAddress.Any, _settings.DnsPort);
             try { listener.Start(MaximumConnections); }
-            catch { listener.Stop(); throw; }
+            catch { listener.Stop(); _status.SetTcpState("Faulted"); throw; }
             var cancellation = new CancellationTokenSource();
             _listener = listener;
             _cancellation = cancellation;
@@ -76,6 +77,7 @@ public sealed class TcpDnsServer : IAsyncDisposable
             exception is OperationCanceledException or SocketException or ObjectDisposedException or InvalidOperationException) { }
         catch (Exception)
         {
+            _status.SetTcpState("Faulted");
             EngineLog.Failure("TCP DNS", "Listener failed");
             throw; // EngineLifetime observes this task and shuts down the remaining components.
         }

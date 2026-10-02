@@ -46,7 +46,7 @@ WPF is the intended client; token possession authenticates access, not executabl
 - Upstream retries are finite. Default: two attempts at 2.5 seconds each against the primary. Optional explicitly configured fallback follows primary failure; no fallback is silently invented. The existing primary default is `1.1.1.1` and is configurable.
 - Upstream replies are checked for source endpoint, transaction ID, response/question correlation, wire-label identity, and structural bounds. Supported queries receive SERVFAIL when forwarding fails.
 
-Health/status and Test Connection are policy read-only. Connectivity, listener state, filtering/Safe Mode, policy revision, and passive upstream observations are separate concepts. Unreachability does not prove filtering has been disabled. A complete WPF Safe Mode/revision/synchronization dashboard is not implemented.
+Health/status and Test Connection are policy read-only. Connectivity, listener state, filtering/Safe Mode, policy revision, and passive upstream observations are separate concepts. Unreachability does not prove filtering has been disabled. WPF displays confirmed runtime, listener, filtering and policy snapshots; failed/expired observations become unknown. Policy synchronization requires a matching acknowledged revision. A complete Safe Mode control/revision history dashboard is not implemented.
 
 ## Development and testing
 
@@ -67,6 +67,8 @@ Verified Phase 5C baseline: **100/100 regression groups pass** (75 earlier group
 
 See [management security](docs/phase-4-review.md), [policy and Safe Mode](docs/phase5a-policy-and-safe-mode.md), [client TCP DNS](docs/phase5b-tcp-dns.md), and [current upstream configuration/reliability](docs/phase5c-upstream-reliability.md). Earlier phase documents are historical milestone records. Engine startup requires explicit credential/certificate paths; build/test commands perform no production provisioning or deployment.
 
+Phase 5D verification: **141/141 regression groups pass** (all 100 Phase 5C groups preserved, 41 failure/status groups added). Rebuild remains **0 errors**, the same **8 existing warnings**, and no new warnings. See [runtime/status/recovery hardening](docs/phase5d-runtime-status-recovery.md). These are automated source-level checks; Phase 5E deployment verification has not begun.
+
 ## Current limitations
 
 - Upstream is UDP only. Truncated replies produce failure/SERVFAIL; upstream TCP recovery is not implemented, including for TCP clients.
@@ -86,7 +88,7 @@ See [management security](docs/phase-4-review.md), [policy and Safe Mode](docs/p
 | Phase 5A: committed policy, persistence, revisions and Safe Mode | Completed |
 | Phase 5B: client TCP DNS | Completed |
 | Phase 5C: upstream reliability and bounded UDP concurrency | Completed |
-| Phase 5D: runtime/status/recovery/failure hardening | Planned |
+| Phase 5D: runtime/status/recovery/failure hardening | Completed (source/automated verification) |
 | Phase 5E: real Linux/LAN integration and deployment verification | Planned |
 
 Later candidates include network portability/awareness, discovery/pairing, remote management/protection, and a [read-only Linux Engine Monitor](docs/future-linux-engine-monitor.md). They are not implemented features. HostsGuardian remains an actively developed prototype; deployment conflicts and configuration require explicit review.

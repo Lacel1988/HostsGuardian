@@ -23,6 +23,9 @@ public sealed class ApiServer : IAsyncDisposable
     private X509Certificate2? _certificate;
     private byte[]? _credential;
     private int _running;
+    private TaskCompletionSource _completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private CancellationTokenRegistration _stoppedRegistration;
+    internal Task Completion => _completion.Task;
 
     public bool IsRunning => Volatile.Read(ref _running) == 1;
 
@@ -51,6 +54,7 @@ public sealed class ApiServer : IAsyncDisposable
         {
             if (IsRunning) return;
             InitializePolicyForStartup();
+            if (_runtimeStatus is EngineRuntimeStatus startingStatus) startingStatus.SetManagementState("Starting");
             var settings = _legacyConfig == null ? _settings : EngineSettings.FromConfig(_legacyConfig);
             byte[]? credential = null;
             X509Certificate2? certificate = null;
@@ -66,6 +70,13 @@ public sealed class ApiServer : IAsyncDisposable
                 _credential = credential;
                 Volatile.Write(ref _running, 1);
                 if (_runtimeStatus is EngineRuntimeStatus status) status.SetManagementListening(true);
+                _completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                _stoppedRegistration = application.Lifetime.ApplicationStopped.Register(() =>
+                {
+                    Volatile.Write(ref _running, 0);
+                    if (_runtimeStatus is EngineRuntimeStatus stoppedStatus) stoppedStatus.SetManagementListening(false);
+                    _completion.TrySetResult();
+                });
                 EngineLog.Information("Management", $"HTTPS listening on {settings.ApiAddress}:{settings.ApiPort}");
             }
             catch
@@ -79,6 +90,7 @@ public sealed class ApiServer : IAsyncDisposable
                     certificate?.Dispose();
                     if (credential != null) CryptographicOperations.ZeroMemory(credential);
                 }
+                if (_runtimeStatus is EngineRuntimeStatus failedStatus) failedStatus.SetManagementState("Faulted");
                 EngineLog.Failure("Management", "Security configuration or listener startup failed");
                 throw;
             }
@@ -157,6 +169,8 @@ public sealed class ApiServer : IAsyncDisposable
             }
             finally
             {
+                _stoppedRegistration.Dispose();
+                _completion.TrySetResult();
                 _application = null;
                 _certificate?.Dispose();
                 _certificate = null;

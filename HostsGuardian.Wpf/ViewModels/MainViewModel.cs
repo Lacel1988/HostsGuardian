@@ -23,6 +23,9 @@ namespace HostsGuardian.Wpf.ViewModels
         private readonly StatusExportService _exportService = new();
         private readonly HostsGuardian.Core.Services.NetworkScanService _networkScan = new();
         private readonly DnsEngineService _dnsEngine = new();
+        private readonly EngineStatusPresentation _engineStatus = new();
+        private bool _engineRequestPending;
+        private int _engineSettingsGeneration;
 
         // ===== WPF services =====
         private readonly FileDialogService _fileDialog = new();
@@ -281,6 +284,8 @@ namespace HostsGuardian.Wpf.ViewModels
 
         private void DomainPolicyChanged(object? sender, PropertyChangedEventArgs e)
         {
+            _engineStatus.InvalidateSelection();
+            UpdateDnsEngineStatusText();
             try
             {
                 _configService.Save(_config);
@@ -503,6 +508,8 @@ namespace HostsGuardian.Wpf.ViewModels
                 if (Set(ref _dnsEngineBaseUrl, value))
                 {
                     _config.DnsEngine.BaseUrl = value ?? "";
+                    _engineSettingsGeneration++;
+                    _engineStatus.Reset();
 
                     OnPropertyChanged(nameof(EngineApiBaseUrl));
                     UpdateDnsEngineStatusText();
@@ -675,6 +682,11 @@ namespace HostsGuardian.Wpf.ViewModels
             DetectRouter();
             UpdateDnsEngineStatusText();
 
+            var statusTimer = new System.Windows.Threading.DispatcherTimer
+            { Interval = TimeSpan.FromSeconds(5) };
+            statusTimer.Tick += (_, _) => UpdateDnsEngineStatusText();
+            statusTimer.Start();
+            Application.Current.Exit += (_, _) => statusTimer.Stop();
             ShowDomains();
         }
 
@@ -709,6 +721,8 @@ namespace HostsGuardian.Wpf.ViewModels
                 entry.PropertyChanged += DomainPolicyChanged;
                 Domains.Add(entry);
                 _config.BlockedDomains.Add(entry);
+                _engineStatus.InvalidateSelection();
+                UpdateDnsEngineStatusText();
 
                 _configService.Save(_config);
                 SafeLog($"Added domain: {dom}", "INFO");
@@ -743,6 +757,8 @@ namespace HostsGuardian.Wpf.ViewModels
 
                 foreach (var x in toRemove)
                     _config.BlockedDomains.Remove(x);
+                _engineStatus.InvalidateSelection();
+                UpdateDnsEngineStatusText();
 
                 _configService.Save(_config);
                 SafeLog($"Removed domain: {dom}", "INFO");
@@ -816,9 +832,11 @@ namespace HostsGuardian.Wpf.ViewModels
             {
                 LastError = "";
                 HostsBlockActive = _hostsService.IsBlockPresent();
+                StatusText = HostsBlockActive ? "ACTIVE" : "INACTIVE";
             }
             catch (Exception ex)
             {
+                StatusText = "UNKNOWN / ERROR";
                 Fail("Status refresh failed", ex);
             }
         }
@@ -1145,91 +1163,77 @@ namespace HostsGuardian.Wpf.ViewModels
 
         private void UpdateDnsEngineStatusText()
         {
-            if (!_config.DnsEngine.Enabled)
-            {
-                DnsEngineStatusText = "Disabled";
-                return;
-            }
-
-            if (string.IsNullOrWhiteSpace(_config.DnsEngine.BaseUrl))
-            {
-                DnsEngineStatusText = "Missing BaseUrl";
-                return;
-            }
-
-            DnsEngineStatusText = _config.DnsEngine.LastSeenUtc.HasValue
-                ? $"Last OK: {_config.DnsEngine.LastSeenUtc.Value:HH:mm:ss} UTC"
-                : "Configured";
+            DnsEngineStatusText = _engineStatus.Describe();
         }
 
         public void OpenEngineSettings()
         {
             var dialog = new HostsGuardian.Wpf.EngineConnectionWindow(_config, _configService) { Owner = Application.Current.MainWindow };
             dialog.ShowDialog();
+            _engineSettingsGeneration++;
+            _engineStatus.Reset();
             _dnsEngineBaseUrl = _config.DnsEngine.BaseUrl;
             OnPropertyChanged(nameof(DnsEngineBaseUrl));
             OnPropertyChanged(nameof(EngineApiBaseUrl));
             UpdateDnsEngineStatusText();
         }
 
-        private void TestDnsEngine()
+        private async void TestDnsEngine()
         {
+            if (_engineRequestPending) return;
+            _engineRequestPending = true;
+            var generation = _engineSettingsGeneration;
+            _engineStatus.BeginRequest();
+            UpdateDnsEngineStatusText();
             try
             {
-                LastError = "";
-
-                System.Threading.Tasks.Task.Run(async () =>
-                {
-                    var (ok, msg) = await _dnsEngine.TestAsync(_config.DnsEngine).ConfigureAwait(false);
-
-                    Application.Current.Dispatcher.Invoke(() =>
-                    {
-                        if (!ok) LastError = "DNS Engine test: " + msg;
-                        SafeLog("DNS Engine test: " + msg, ok ? "INFO" : "WARN");
-
-                        UpdateDnsEngineStatusText();
-                        RefreshActivity();
-
-                        OnPropertyChanged(nameof(EngineStatusText));
-                    });
-                });
+                var result = await _dnsEngine.TestConnectionAsync(_config.DnsEngine);
+                if (generation != _engineSettingsGeneration) return;
+                _engineStatus.Complete(result);
+                if (!result.Ok) LastError = "DNS Engine test: " + result.Message;
+                SafeLog("DNS Engine test: " + result.Message, result.Ok ? "INFO" : "WARN");
             }
-            catch (Exception ex)
+            catch
             {
-                Fail("DNS Engine test failed", ex, level: "WARN");
+                if (generation == _engineSettingsGeneration)
+                {
+                    _engineStatus.Complete(new(ConnectionState.NetworkFailure, "Connection failed"));
+                    LastError = "DNS Engine connection failed";
+                }
             }
+            finally { _engineRequestPending = false; UpdateDnsEngineStatusText(); RefreshActivity(); }
         }
 
-        private void PushDnsRules()
+        private async void PushDnsRules()
         {
+            if (_engineRequestPending) return;
+            _engineRequestPending = true;
+            var generation = _engineSettingsGeneration;
+            _engineStatus.BeginRequest();
+            _engineStatus.InvalidateSelection();
+            UpdateDnsEngineStatusText();
             try
             {
-                LastError = "";
-
-                // Capture only explicitly selected DNS policy before starting background work.
                 var domains = DomainPolicySelection.ForDns(_config.BlockedDomains);
                 _configService.Save(_config);
-
-                System.Threading.Tasks.Task.Run(async () =>
-                {
-                    var (ok, msg) = await _dnsEngine.PushBlockedDomainsAsync(_config.DnsEngine, domains).ConfigureAwait(false);
-
-                    Application.Current.Dispatcher.Invoke(() =>
-                    {
-                        if (!ok) LastError = "Push rules: " + msg;
-                        SafeLog("Push rules: " + msg, ok ? "INFO" : "WARN");
-                        _configService.Save(_config);
-                        UpdateDnsEngineStatusText();
-                        RefreshActivity();
-
-                        OnPropertyChanged(nameof(EngineStatusText));
-                    });
-                });
+                var confirmation = await _dnsEngine.ReplacePolicyAsync(_config.DnsEngine, domains);
+                if (generation != _engineSettingsGeneration) return;
+                var selectionUnchanged = domains.SequenceEqual(DomainPolicySelection.ForDns(_config.BlockedDomains));
+                _engineStatus.Complete(confirmation.Connection,
+                    confirmation.Confirmed && selectionUnchanged ? confirmation.CommittedRevision : null);
+                if (!confirmation.Confirmed) LastError = "Push rules: " + confirmation.Connection.Message;
+                SafeLog(confirmation.Confirmed ? "DNS policy revision confirmed" : "DNS policy confirmation failed: " + confirmation.Connection.Message,
+                    confirmation.Confirmed ? "INFO" : "WARN");
             }
-            catch (Exception ex)
+            catch
             {
-                Fail("Push rules failed", ex, level: "WARN");
+                if (generation == _engineSettingsGeneration)
+                {
+                    _engineStatus.Complete(new(ConnectionState.EngineError, "Policy request failed"));
+                    LastError = "DNS policy request failed; synchronization unknown";
+                }
             }
+            finally { _engineRequestPending = false; UpdateDnsEngineStatusText(); RefreshActivity(); }
         }
 
         // ===================== LOG COMMAND IMPLEMENTATIONS =====================

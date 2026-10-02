@@ -61,6 +61,7 @@ public sealed class EngineConnectionWindow : Window
         AddButton(connection, "TEST CONNECTION", async () =>
         {
             var generation = ++_generation;
+            SetStatus("Testing — current connection unknown (read-only)", Warning);
             try
             {
                 if (_replace && ManagementSecurity.ParseToken(_token.Password) == null) { SetStatus("Credential unavailable: enter a valid provisioned credential", Error); return; }
@@ -68,16 +69,16 @@ public sealed class EngineConnectionWindow : Window
                 if (_clear || (_endpointChanged && !_replace)) { SetStatus("Credential unavailable: enter a credential for this endpoint", Error); return; }
                 var result = await new DnsEngineService(credentials: _store).TestConnectionAsync(draft);
                 if (generation != _generation) return;
-                SetStatus($"{result.State}: {result.Message}", result.Ok ? Success : result.State == ConnectionState.CredentialUnavailable ? Warning : Error);
-                if (result.Transport != null) _status.Text += $"\nDNS UDP: {(result.Transport.UdpListening ? "LISTENING" : "STOPPED")} :{result.Transport.DnsPort}\nDNS TCP: {(result.Transport.TcpImplemented ? "IMPLEMENTED" : "NOT IMPLEMENTED")}\nFiltering and synchronization state are separate.";
+                SetStatus($"{result.State}: {result.Message} (observed {DateTimeOffset.UtcNow:HH:mm:ss} UTC)", result.Ok ? Success : result.State == ConnectionState.CredentialUnavailable ? Warning : Error);
+                if (result.Transport != null) _status.Text += $"\nDNS UDP: {(result.Transport.UdpListening ? "LISTENING" : "STOPPED")} :{result.Transport.DnsPort}\nDNS TCP: {(result.Transport.TcpListening ? "LISTENING" : "STOPPED")}\nEngine: {result.Transport.RuntimeState}; filtering: {(result.Transport.FilteringEnabled ? "ENABLED" : result.Transport.EmergencySafeMode ? "SAFE MODE BYPASS" : "DISABLED")}\nPolicy revision: {result.Transport.PolicyRevision}; synchronization: unconfirmed (test is read-only).";
             }
             catch { if (generation == _generation) SetStatus("Invalid connection settings", Error); }
         });
         AddButton(actions, "SAVE", Save);
         AddButton(actions, "Cancel", Close);
-        _address.TextChanged += (_, _) => { _endpointChanged = true; _generation++; };
-        _port.TextChanged += (_, _) => { _endpointChanged = true; _generation++; };
-        _token.PasswordChanged += (_, _) => _generation++;
+        _address.TextChanged += (_, _) => { _endpointChanged = true; _generation++; SetStatus("Settings changed — connection unknown; test again", Warning); };
+        _port.TextChanged += (_, _) => { _endpointChanged = true; _generation++; SetStatus("Settings changed — connection unknown; test again", Warning); };
+        _token.PasswordChanged += (_, _) => { _generation++; SetStatus("Credential input changed — connection unknown; test again", Warning); };
         Closed += (_, _) => { _generation++; _token.Clear(); };
     }
     private static StackPanel Section(Panel parent, string title)
@@ -129,7 +130,7 @@ public sealed class EngineConnectionWindow : Window
             if (cert.HasPrivateKey) { SetStatus("Select a public certificate only", Error); return; }
             var fingerprint = Convert.ToHexString(SHA256.HashData(cert.RawData));
             if (MessageBox.Show(this, $"Verify this SHA-256 fingerprint independently on the Linux/HostsGuardian Engine host before enrollment:\n{fingerprint}\nValid until {cert.NotAfter:u}\nEnroll this server identity?", "Explicit certificate trust", MessageBoxButton.YesNo) != MessageBoxResult.Yes) return;
-            _certificate = Convert.ToBase64String(cert.RawData); RefreshTrust(); _generation++;
+            _certificate = Convert.ToBase64String(cert.RawData); RefreshTrust(); _generation++; SetStatus("Trust draft changed — connection unknown; test again", Warning);
         }
         catch { SetStatus("Certificate file could not be read", Error); }
     }

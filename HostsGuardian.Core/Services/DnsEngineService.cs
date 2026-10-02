@@ -18,7 +18,9 @@ public sealed class DnsEngineService
         Uri endpoint;
         try { endpoint = ManagementSecurity.Endpoint(cfg); }
         catch { return (new(ConnectionState.InvalidSettings, "Invalid Engine address or port"), ""); }
-        var token = string.IsNullOrEmpty(cfg.ApiToken) ? _credentials.Read(cfg.CredentialId) : cfg.ApiToken;
+        string? token;
+        try { token = string.IsNullOrEmpty(cfg.ApiToken) ? _credentials.Read(cfg.CredentialId) : cfg.ApiToken; }
+        catch { return (new(ConnectionState.CredentialUnavailable, "Protected credential unavailable"), ""); }
         if (ManagementSecurity.ParseToken(token) == null) return (new(ConnectionState.CredentialUnavailable, "Credential unavailable"), "");
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
         deadline.CancelAfter(TimeSpan.FromSeconds(8));
@@ -68,24 +70,84 @@ public sealed class DnsEngineService
             var (statusResult, statusBody) = await Send(cfg, "dns/status", null, ct);
             if (!statusResult.Ok) return statusResult;
             var status = JsonSerializer.Deserialize<DnsServiceStatus>(statusBody, Options);
-            if (status?.Implementation != "HostsGuardian.DnsEngine" || status.DnsPort is < 1 or > 65535 || status.ApiPort != cfg.ManagementPort)
+            if (status?.Implementation != "HostsGuardian.DnsEngine" || status.DnsPort is < 1 or > 65535 || status.ApiPort != cfg.ManagementPort || !IsConsistentStatus(status))
                 return new(ConnectionState.Incompatible, "Invalid Engine transport response");
             return result with { Transport = status };
         }
         catch { return new(ConnectionState.Incompatible, "Malformed Engine response"); }
     }
+    private static bool IsConsistentStatus(DnsServiceStatus status)
+    {
+        if (status.RuntimeState is not ("NotStarted" or "Starting" or "Running" or "Degraded" or "Stopping" or "Stopped" or "Faulted")) return false;
+        if (status.PolicyRestoreState is not ("NotLoaded" or "Missing" or "Restored" or "Invalid" or "Unavailable")) return false;
+        if (status.PersistenceFault is not ("" or "PolicyInvalid" or "PolicyReadFailed" or "PolicyWriteFailed")) return false;
+        if (status.SafeModeReason is not ("" or "PolicyNotLoaded" or "UntrustedPolicy" or "ManagementRequested")) return false;
+        if (status.LastUpstreamOutcome is not ("NotObserved" or "Response" or "Timeout" or "TransportFailure" or "InvalidResponse" or "Exhausted" or "Truncated" or "ServerFailure")) return false;
+        if (status.LastUpstreamFailure is not ("" or "Timeout" or "TransportFailure" or "InvalidResponse" or "Exhausted" or "Truncated" or "ServerFailure")) return false;
+        foreach (var listenerState in new[] { status.UdpState, status.TcpState, status.ManagementState })
+            if (listenerState is not ("NotStarted" or "Starting" or "Listening" or "Stopped" or "Faulted")) return false;
+        if (status.CommittedRuleCount < 0 || status.ActiveRuleCount < 0 || status.PolicyRevision < 0) return false;
+        if (status.FilteringEnabled != (status.PolicyLoaded && !status.EmergencySafeMode)) return false;
+        if (status.ActiveRuleCount != (status.FilteringEnabled ? status.CommittedRuleCount : 0)) return false;
+        if (status.PolicyLoaded && status.PolicyRevision == null) return false;
+        if (status.RuntimeState == "Running" && (!status.ManagementListening || !status.UdpListening || !status.TcpListening)) return false;
+        if (status.SnapshotUtc != null)
+        {
+            if (status.UdpListening != (status.UdpState == "Listening")) return false;
+            if (status.TcpListening != (status.TcpState == "Listening")) return false;
+            if (status.ManagementListening != (status.ManagementState == "Listening")) return false;
+        }
+        return true;
+    }
+
+    // HTTP success is insufficient: the Engine must acknowledge a durable revision and exact count.
+    private async Task<PolicyUpdateConfirmation> SendPolicyAsync(DnsEngineConfig cfg, IEnumerable<string> domains, CancellationToken ct)
+    {
+        var selected = domains.Select(DomainName.Normalize).ToArray();
+        if (selected.Any(string.IsNullOrEmpty))
+            return new(new(ConnectionState.InvalidSettings, "Invalid selected domain"), null, 0);
+        selected = selected.Distinct(StringComparer.Ordinal).ToArray();
+        var (result, body) = await Send(cfg, "rules/blocked/replace", JsonSerializer.Serialize(new { blocked = selected }), ct);
+        if (!result.Ok) return new(result, null, 0);
+        try
+        {
+            using var document = JsonDocument.Parse(body);
+            var root = document.RootElement;
+            if (!root.GetProperty("ok").GetBoolean())
+                return new(new(ConnectionState.EngineError, "Engine rejected update"), null, 0);
+            var revision = root.GetProperty("revision").GetInt64();
+            var count = root.GetProperty("count").GetInt32();
+            if (revision < 1 || count != selected.Length) throw new JsonException();
+            return new(result, revision, count);
+        }
+        catch { return new(new(ConnectionState.Incompatible, "Malformed policy confirmation"), null, 0); }
+    }
+
+    public async Task<PolicyUpdateConfirmation> ReplacePolicyAsync(DnsEngineConfig cfg, IEnumerable<string> domains, CancellationToken ct = default)
+    {
+        var acknowledgement = await SendPolicyAsync(cfg, domains, ct);
+        if (!acknowledgement.Connection.Ok) return acknowledgement;
+        var confirmed = await TestConnectionAsync(cfg, ct);
+        if (!confirmed.Ok) return acknowledgement with { Connection = confirmed };
+        var status = confirmed.Transport;
+        if (status == null || status.PolicyRevision != acknowledgement.CommittedRevision ||
+            status.CommittedRuleCount != acknowledgement.Count)
+            return acknowledgement with { Connection = new(ConnectionState.EngineError,
+                "Policy committed; later status differs, synchronization unconfirmed") };
+        return acknowledgement with { Connection = confirmed };
+    }
+
     public async Task<(bool ok, string message)> TestAsync(DnsEngineConfig cfg, CancellationToken ct = default)
     { var result = await TestConnectionAsync(cfg, ct); return (result.Ok, result.Message); }
+
+    // Compatibility callers get a validated acknowledgement, not a claim of current synchronization.
     public async Task<(bool ok, string message)> PushBlockedDomainsAsync(DnsEngineConfig cfg, IEnumerable<string> domains, CancellationToken ct = default)
     {
-        var list = domains.Select(DomainName.Normalize).ToArray();
-        if (list.Any(string.IsNullOrEmpty)) return (false, "Invalid selected domain");
-        var (result, body) = await Send(cfg, "rules/blocked/replace", JsonSerializer.Serialize(new { blocked = list.Distinct().ToArray() }), ct);
-        if (!result.Ok) return (false, result.Message);
-        try { using var doc = JsonDocument.Parse(body); if (!doc.RootElement.GetProperty("ok").GetBoolean()) return (false, "Engine rejected update"); }
-        catch { return (false, "Malformed Engine response"); }
-        return (true, "Explicit DNS rules sent");
+        var result = await SendPolicyAsync(cfg, domains, ct);
+        return (result.Connection.Ok, result.Connection.Ok
+            ? $"DNS policy commit acknowledged at revision {result.CommittedRevision}" : result.Connection.Message);
     }
+
     public async Task<(bool ok, string message, string[] blocked)> GetBlockedDomainsAsync(DnsEngineConfig cfg, CancellationToken ct = default)
     {
         var (result, body) = await Send(cfg, "rules/blocked", null, ct);
@@ -96,6 +158,6 @@ public sealed class DnsEngineService
     public async Task<(bool ok, string message)> GetDnsStatusAsync(DnsEngineConfig cfg, CancellationToken ct = default)
     {
         var result = await TestConnectionAsync(cfg, ct);
-        return (result.Ok, result.Transport == null ? result.Message : $"UDP: {(result.Transport.UdpListening ? "listening" : "stopped")} :{result.Transport.DnsPort}; TCP: {(result.Transport.TcpImplemented ? "implemented" : "not implemented")}");
+        return (result.Ok, result.Transport == null ? result.Message : $"UDP: {(result.Transport.UdpListening ? "listening" : "stopped")} :{result.Transport.DnsPort}; TCP: {(result.Transport.TcpListening ? "listening" : "stopped")}");
     }
 }

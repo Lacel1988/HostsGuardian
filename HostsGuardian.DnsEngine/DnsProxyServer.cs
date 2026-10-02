@@ -15,6 +15,7 @@ public sealed class DnsProxyServer : IAsyncDisposable
     private int _activeRequests;
     private readonly BoundedEventLog _log = new();
     private readonly Func<byte[], CancellationToken, Task<byte[]?>> _processRequest;
+    private readonly Func<UdpClient, CancellationToken, ValueTask<UdpReceiveResult>> _receive;
     public int ActiveRequestCount => Volatile.Read(ref _activeRequests);
 
     public EngineRuntimeStatus RuntimeStatus { get; }
@@ -32,9 +33,10 @@ public sealed class DnsProxyServer : IAsyncDisposable
 
     // Internal seam for deterministic worker exception/lifetime tests, never selected by production composition.
     internal DnsProxyServer(RuleStore rules, EngineSettings settings,
-        Func<byte[], CancellationToken, Task<byte[]?>>? processRequest)
+        Func<byte[], CancellationToken, Task<byte[]?>>? processRequest, Func<UdpClient, CancellationToken, ValueTask<UdpReceiveResult>>? receive = null)
     {
         _settings = settings;
+        _receive = receive ?? ((listener, token) => listener.ReceiveAsync(token));
         var upstream = new UpstreamRuntimeState();
         RuntimeStatus = new EngineRuntimeStatus(settings, rules.InstanceId, PolicyState, upstream);
         _processor = new DnsRequestProcessor(rules, settings, new UpstreamDnsForwarder(settings, upstream), PolicyState);
@@ -50,9 +52,10 @@ public sealed class DnsProxyServer : IAsyncDisposable
         try
         {
             if (_listener != null) return;
+            RuntimeStatus.SetUdpState("Starting");
             var listener = new UdpClient(AddressFamily.InterNetwork);
             try { listener.Client.Bind(new IPEndPoint(IPAddress.Any, _settings.DnsPort)); }
-            catch { listener.Dispose(); throw; }
+            catch { listener.Dispose(); RuntimeStatus.SetUdpState("Faulted"); throw; }
 
             var cancellation = new CancellationTokenSource();
             _listener = listener;
@@ -94,14 +97,19 @@ public sealed class DnsProxyServer : IAsyncDisposable
             while (!cancellationToken.IsCancellationRequested)
             {
                 UdpReceiveResult request;
-                try { request = await listener.ReceiveAsync(cancellationToken).ConfigureAwait(false); }
+                try { request = await _receive(listener, cancellationToken).ConfigureAwait(false); }
                 catch (Exception ex) when (cancellationToken.IsCancellationRequested &&
                     ex is OperationCanceledException or ObjectDisposedException or SocketException)
                 { break; }
+                catch (SocketException exception) when (exception.SocketErrorCode is SocketError.ConnectionReset or SocketError.ConnectionRefused)
+                {
+                    _log.Warning("DNS", "UDP peer error; receive continues");
+                    continue;
+                }
                 catch (SocketException)
                 {
                     _log.Warning("DNS", "UDP receive failed");
-                    continue;
+                    throw;
                 }
 
                 // Observe/reap completed work before admission. No unbounded queue or Task.Run.
@@ -119,12 +127,17 @@ public sealed class DnsProxyServer : IAsyncDisposable
                 requests.Add(ProcessDatagramAsync(listener, request, cancellationToken));
             }
         }
+        catch
+        {
+            RuntimeStatus.SetUdpState("Faulted");
+            throw;
+        }
         finally
         {
+            RuntimeStatus.SetUdpListening(false);
             // Fatal receive errors also cancel children, before the lifetime observes listener failure.
             _cancellation?.Cancel();
             await Task.WhenAll(requests).ConfigureAwait(false);
-            RuntimeStatus.SetUdpListening(false);
         }
     }
 

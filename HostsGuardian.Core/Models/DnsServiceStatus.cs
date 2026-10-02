@@ -3,6 +3,10 @@ namespace HostsGuardian.Core.Models;
 /// <summary>Independent transport and policy snapshots; connectivity does not imply rule synchronization.</summary>
 public sealed class DnsServiceStatus
 {
+    public DateTimeOffset? SnapshotUtc { get; set; }
+    public string UdpState { get; set; } = "NotStarted";
+    public string TcpState { get; set; } = "NotStarted";
+    public string ManagementState { get; set; } = "NotStarted";
     public string Implementation { get; set; } = "";
     public string InstanceId { get; set; } = "";
     public int DnsPort { get; set; }
