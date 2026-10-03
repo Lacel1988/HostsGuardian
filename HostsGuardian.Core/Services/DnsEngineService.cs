@@ -123,6 +123,43 @@ public sealed class DnsEngineService
         catch { return new(new(ConnectionState.Incompatible, "Malformed policy confirmation"), null, 0); }
     }
 
+    public Task<SafeModeTransitionResult> EnterSafeModeAsync(DnsEngineConfig cfg, CancellationToken ct = default)
+        => ChangeSafeModeAsync(cfg, true, ct);
+
+    public Task<SafeModeTransitionResult> ExitSafeModeAsync(DnsEngineConfig cfg, CancellationToken ct = default)
+        => ChangeSafeModeAsync(cfg, false, ct);
+
+    private async Task<SafeModeTransitionResult> ChangeSafeModeAsync(DnsEngineConfig cfg, bool enabled, CancellationToken ct)
+    {
+        var path = enabled ? "safe-mode/enter" : "safe-mode/exit";
+        var (response, body) = await Send(cfg, path, "{}", ct);
+        if (!response.Ok) return new(response, enabled, null, null);
+        long? revision;
+        int count;
+        try
+        {
+            using var document = JsonDocument.Parse(body);
+            var root = document.RootElement;
+            if (!root.GetProperty("ok").GetBoolean())
+                return new(new(ConnectionState.EngineError, "Safe Mode request rejected"), enabled, null, null);
+            var revisionValue = root.GetProperty("revision");
+            revision = revisionValue.ValueKind == JsonValueKind.Null ? null : revisionValue.GetInt64();
+            count = root.GetProperty("count").GetInt32();
+            if (revision < 0 || count < 0 || (revision == null && count != 0)) throw new JsonException();
+        }
+        catch
+        {
+            return new(new(ConnectionState.Incompatible, "Malformed Safe Mode acknowledgement"), enabled, null, null);
+        }
+
+        // No mutation retry: status may reveal that another operation superseded this request.
+        var statusResponse = await TestConnectionAsync(cfg, ct);
+        var transition = new SafeModeTransitionResult(statusResponse, enabled, revision, count);
+        if (!statusResponse.Ok || transition.Confirmed) return transition;
+        return transition with { Connection = new(ConnectionState.EngineError,
+            "Safe Mode request acknowledged; current transition unconfirmed") };
+    }
+
     public async Task<PolicyUpdateConfirmation> ReplacePolicyAsync(DnsEngineConfig cfg, IEnumerable<string> domains, CancellationToken ct = default)
     {
         var acknowledgement = await SendPolicyAsync(cfg, domains, ct);

@@ -575,6 +575,10 @@ namespace HostsGuardian.Wpf.ViewModels
         public ICommand ClearErrorCommand { get; }
         public ICommand RefreshNetworkSnapshotCommand { get; }
         public ICommand SaveDevicePoliciesCommand { get; }
+        public ICommand EnterEngineSafeModeCommand { get; }
+        public ICommand ExitEngineSafeModeCommand { get; }
+        public string EngineSafeModeText => _engineStatus.SafeMode;
+        public string EngineStatusDetailsText => _engineStatus.DescribeDetails();
         public ICommand TestDnsEngineCommand { get; }
         public ICommand PushDnsRulesCommand { get; }
 
@@ -629,6 +633,10 @@ namespace HostsGuardian.Wpf.ViewModels
             ScanDevicesCommand = new RelayCommand(ScanDevices);
             SaveDevicePoliciesCommand = new RelayCommand(SaveDevicePolicies);
 
+            EnterEngineSafeModeCommand = new RelayCommand(EnterEngineSafeMode,
+                () => !_engineRequestPending && _engineStatus.CanEnterSafeMode);
+            ExitEngineSafeModeCommand = new RelayCommand(ExitEngineSafeMode,
+                () => !_engineRequestPending && _engineStatus.CanExitSafeMode);
             TestDnsEngineCommand = new RelayCommand(TestDnsEngine);
             PushDnsRulesCommand = new RelayCommand(PushDnsRules);
 
@@ -1164,6 +1172,10 @@ namespace HostsGuardian.Wpf.ViewModels
         private void UpdateDnsEngineStatusText()
         {
             DnsEngineStatusText = _engineStatus.Describe();
+            OnPropertyChanged(nameof(EngineSafeModeText));
+            OnPropertyChanged(nameof(EngineStatusDetailsText));
+            (EnterEngineSafeModeCommand as RelayCommand)?.RaiseCanExecuteChanged();
+            (ExitEngineSafeModeCommand as RelayCommand)?.RaiseCanExecuteChanged();
         }
 
         public void OpenEngineSettings()
@@ -1176,6 +1188,38 @@ namespace HostsGuardian.Wpf.ViewModels
             OnPropertyChanged(nameof(DnsEngineBaseUrl));
             OnPropertyChanged(nameof(EngineApiBaseUrl));
             UpdateDnsEngineStatusText();
+        }
+
+        private async void EnterEngineSafeMode() => await ChangeEngineSafeModeAsync(true);
+        private async void ExitEngineSafeMode() => await ChangeEngineSafeModeAsync(false);
+
+        private async Task ChangeEngineSafeModeAsync(bool enabled)
+        {
+            if (_engineRequestPending || !(enabled ? _engineStatus.CanEnterSafeMode : _engineStatus.CanExitSafeMode)) return;
+            _engineRequestPending = true;
+            var generation = _engineSettingsGeneration;
+            _engineStatus.BeginRequest();
+            UpdateDnsEngineStatusText();
+            try
+            {
+                var transition = enabled
+                    ? await _dnsEngine.EnterSafeModeAsync(_config.DnsEngine)
+                    : await _dnsEngine.ExitSafeModeAsync(_config.DnsEngine);
+                if (generation != _engineSettingsGeneration) return;
+                _engineStatus.Complete(transition.Connection);
+                if (!transition.Confirmed) LastError = "Safe Mode transition unconfirmed: " + transition.Connection.Message;
+                SafeLog(transition.Confirmed ? "Safe Mode transition confirmed by Engine status" :
+                    "Safe Mode transition unconfirmed: " + transition.Connection.Message, transition.Confirmed ? "INFO" : "WARN");
+            }
+            catch
+            {
+                if (generation == _engineSettingsGeneration)
+                {
+                    _engineStatus.Complete(new(ConnectionState.NetworkFailure, "Safe Mode request failed; current state unknown"));
+                    LastError = "Safe Mode request failed; current state unknown";
+                }
+            }
+            finally { _engineRequestPending = false; UpdateDnsEngineStatusText(); RefreshActivity(); }
         }
 
         private async void TestDnsEngine()

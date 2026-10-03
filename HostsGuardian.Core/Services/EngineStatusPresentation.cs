@@ -25,6 +25,49 @@ public sealed class EngineStatusPresentation
             return current.FilteringEnabled ? "Enabled" : current.EmergencySafeMode ? "Safe Mode bypass" : "Disabled";
         }
     }
+    public string SafeMode
+    {
+        get
+        {
+            var status = Current;
+            if (status == null) return "Safe Mode: Unknown / unconfirmed";
+            return status.EmergencySafeMode ? "Safe Mode: confirmed bypass" : "Safe Mode: off (confirmed)";
+        }
+    }
+
+    private DnsServiceStatus? ControllableStatus
+    {
+        get
+        {
+            var status = Current;
+            if (status == null || !status.ManagementListening) return null;
+            if (status.RuntimeState is not ("Running" or "Degraded")) return null;
+            return status;
+        }
+    }
+    public bool CanEnterSafeMode => ControllableStatus is { EmergencySafeMode: false };
+    public bool CanExitSafeMode => ControllableStatus is { EmergencySafeMode: true, PolicyLoaded: true };
+
+    public string DescribeDetails()
+    {
+        var status = Current;
+        if (status == null)
+            return "Current status details: Unknown / unconfirmed" +
+                (_confirmedUtc.HasValue ? $"\nLast confirmation: {_confirmedUtc:O} (historical only)" : "");
+        static string Time(DateTimeOffset? value) => value?.ToUniversalTime().ToString("O") ?? "Not observed";
+        return $"Safe Mode reason: {(status.SafeModeReason == "" ? "None reported" : status.SafeModeReason)}\n" +
+            $"Policy restore: {status.PolicyRestoreState}; loaded: {status.PolicyLoaded}\n" +
+            $"Persistence fault: {(status.PersistenceFault == "" ? "None reported" : status.PersistenceFault)}\n" +
+            $"Upstream latest outcome: {status.LastUpstreamOutcome} (passive; not an active health check)\n" +
+            $"Last upstream success UTC: {Time(status.LastUpstreamSuccessUtc)}\n" +
+            $"Last upstream failure UTC: {Time(status.LastUpstreamFailureUtc)}; historical category: " +
+            $"{(status.LastUpstreamFailure == "" ? "Not observed" : status.LastUpstreamFailure)}\n" +
+            "Historical failure does not establish a current outage.\n" +
+            $"Last observed request used fallback: {(status.LastUpstreamOutcome == "NotObserved" ? "Not observed" : status.LastUpstreamRequestUsedFallback.ToString())}\n" +
+            $"Last fallback use UTC: {Time(status.LastFallbackUseUtc)}; fallback configured: {status.FallbackConfigured}\n" +
+            $"Runtime: {status.RuntimeState}; management: {status.ManagementState}; UDP: {status.UdpState}; TCP: {status.TcpState}";
+    }
+
     public string Synchronization
     {
         get

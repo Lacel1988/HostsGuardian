@@ -236,6 +236,7 @@ try
     await Phase5BTests.Run(Test, AsyncTest, fixtureRoot);
     await Phase5CTests.Run(Test, AsyncTest, fixtureRoot);
     await Phase5DTests.Run(Test, AsyncTest, fixtureRoot);
+    await Phase5ES1Tests.Run(Test, AsyncTest, fixtureRoot);
     Console.WriteLine($"{passed} regression groups passed. No system hosts, real DNS, or deployment service was changed.");
 }
 finally { Console.WriteLine("Isolated fixture directory: " + fixtureRoot); }

@@ -46,7 +46,7 @@ WPF is the intended client; token possession authenticates access, not executabl
 - Upstream retries are finite. Default: two attempts at 2.5 seconds each against the primary. Optional explicitly configured fallback follows primary failure; no fallback is silently invented. The existing primary default is `1.1.1.1` and is configurable.
 - Upstream replies are checked for source endpoint, transaction ID, response/question correlation, wire-label identity, and structural bounds. Supported queries receive SERVFAIL when forwarding fails.
 
-Health/status and Test Connection are policy read-only. Connectivity, listener state, filtering/Safe Mode, policy revision, and passive upstream observations are separate concepts. Unreachability does not prove filtering has been disabled. WPF displays confirmed runtime, listener, filtering and policy snapshots; failed/expired observations become unknown. Policy synchronization requires a matching acknowledged revision. A complete Safe Mode control/revision history dashboard is not implemented.
+Health/status and Test Connection are policy read-only. Connectivity, listener state, filtering/Safe Mode, policy revision, and passive upstream observations are separate concepts. Unreachability does not prove filtering has been disabled. WPF displays confirmed runtime, listener, filtering and policy snapshots; failed/expired observations become unknown. Policy synchronization requires a matching acknowledged revision. WPF provides explicit, guarded Safe Mode enter/exit commands confirmed by authenticated status and read-only operational details. A revision history dashboard remains unimplemented. See [Safe Mode source gate S1](docs/phase5e-s1-safe-mode-gui.md).
 
 ## Development and testing
 
