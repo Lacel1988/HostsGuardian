@@ -106,7 +106,7 @@ internal static class Phase5ATests
             var first = Policy(path);
             var result = first.Replace(new[] { "B.invalid", "a.invalid", "b.invalid" });
             Check(result.Success && result.Revision == 1 && result.Count == 2, "Commit result wrong");
-            Check(File.ReadAllText(path) == "{\"schemaVersion\":1,\"revision\":1,\"domains\":[\"a.invalid\",\"b.invalid\"]}", "Serialization not deterministic");
+            Check(File.ReadAllText(path) == "{\"schemaVersion\":2,\"revision\":1,\"policy\":{\"schemaVersion\":2,\"globalBlockedDomains\":[\"a.invalid\",\"b.invalid\"],\"devices\":[],\"overrides\":[]}}", "Serialization not deterministic");
             var second = Policy(path); second.InitializeForStartup();
             Check(second.GetBlockedDomains().SequenceEqual(new[] { "a.invalid", "b.invalid" }) && second.State.GetSnapshot().Revision == 1, "Restore changed policy/revision");
             Check(second.Add(new[] { "c.invalid" }).Revision == 2, "Revision did not advance");
@@ -129,7 +129,7 @@ internal static class Phase5ATests
             var path = PolicyPath(directory); var policy = Policy(path);
             Check(policy.Replace(new[] { "explicit.invalid" }).Success, "Fixture commit failed");
             var bytes = File.ReadAllBytes(path);
-            using (var locked = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read))
+            using (var locked = new PolicyWriteFailureFixture(path))
             {
                 var result = policy.Replace(new[] { "new.invalid" });
                 Check(!result.Success && result.FailureCategory == "PersistenceFailure" && result.Revision == 1, "Write failure acknowledged");
@@ -325,7 +325,7 @@ internal static class Phase5ATests
                     Check(new PolicyPersistence(path).Load().Policy!.Revision == 1, "Success preceded durable state");
                 }
                 var bytes = File.ReadAllBytes(path);
-                using (var locked = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read))
+                using (var locked = new PolicyWriteFailureFixture(path))
                 using (var response = await Post("/rules/blocked/replace", "{\"blocked\":[\"new.invalid\"]}"))
                 {
                     var body = await response.Content.ReadAsStringAsync(); using var result = JsonDocument.Parse(body);

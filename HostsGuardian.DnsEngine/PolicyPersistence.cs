@@ -3,12 +3,16 @@ using HostsGuardian.Core.Models;
 
 namespace HostsGuardian.DnsEngine;
 
-public sealed record CommittedPolicy(long Revision, string[] Domains);
+public sealed record CommittedPolicy(long Revision, string[] Domains)
+{
+    public FullDnsPolicy? Policy { get; init; }
+}
 public sealed record PolicyLoadResult(string State, CommittedPolicy? Policy, string Fault = "");
 
 /// <summary>Owns one versioned policy file; never generates policy or modifies RuleStore.</summary>
 public sealed class PolicyPersistence
 {
+    internal static readonly JsonSerializerOptions JsonOptions = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase, UnmappedMemberHandling = System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow };
     public const int MaximumFileBytes = 1024 * 1024;
     private readonly string _path;
 
@@ -39,8 +43,19 @@ public sealed class PolicyPersistence
             var names = new HashSet<string>(StringComparer.Ordinal);
             foreach (var property in root.EnumerateObject())
                 if (!names.Add(property.Name)) return Invalid();
-            if (!names.SetEquals(new[] { "schemaVersion", "revision", "domains" })) return Invalid();
-            if (!root.GetProperty("schemaVersion").TryGetInt32(out var version) || version != 1) return Invalid();
+            if (!root.TryGetProperty("schemaVersion", out var versionValue) || !versionValue.TryGetInt32(out var version)) return Invalid();
+            if (version == 2)
+            {
+                if (!names.SetEquals(new[] { "schemaVersion", "revision", "policy" }) ||
+                    !root.GetProperty("revision").TryGetInt64(out var fullRevision) || fullRevision < 1) return Invalid();
+                var stored = root.GetProperty("policy").Deserialize<FullDnsPolicy>(JsonOptions);
+                if (stored == null) return Invalid();
+                RejectDuplicateProperties(root.GetProperty("policy"));
+                var canonical = FullPolicyValidation.Canonicalize(stored);
+                if (JsonSerializer.Serialize(stored, JsonOptions) != JsonSerializer.Serialize(canonical, JsonOptions)) return Invalid();
+                return new("Restored", new CommittedPolicy(fullRevision, canonical.GlobalBlockedDomains.ToArray()) { Policy = canonical });
+            }
+            if (version != 1 || !names.SetEquals(new[] { "schemaVersion", "revision", "domains" })) return Invalid();
             if (!root.GetProperty("revision").TryGetInt64(out var revision) || revision < 1) return Invalid();
             var values = root.GetProperty("domains");
             if (values.ValueKind != JsonValueKind.Array) return Invalid();
@@ -59,7 +74,7 @@ public sealed class PolicyPersistence
         }
         catch (FileNotFoundException) { return Missing(); }
         catch (DirectoryNotFoundException) { return Missing(); }
-        catch (Exception exception) when (exception is JsonException or InvalidOperationException or FormatException or OverflowException)
+        catch (Exception exception) when (exception is JsonException or InvalidOperationException or FormatException or OverflowException or ArgumentException)
         { return Invalid(); }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or System.Security.SecurityException)
         { return new PolicyLoadResult("Unavailable", null, "PolicyReadFailed"); }
@@ -75,7 +90,14 @@ public sealed class PolicyPersistence
                 throw new ArgumentException("Policy must contain sorted unique normalized domains");
             previous = domain;
         }
-        var bytes = JsonSerializer.SerializeToUtf8Bytes(new { schemaVersion = 1, revision = policy.Revision, domains = policy.Domains });
+        byte[] bytes;
+        if (policy.Policy is { } full)
+        {
+            var canonical = FullPolicyValidation.Canonicalize(full);
+            if (!canonical.GlobalBlockedDomains.SequenceEqual(policy.Domains)) throw new ArgumentException("Incoherent policy");
+            bytes = JsonSerializer.SerializeToUtf8Bytes(new { schemaVersion = 2, revision = policy.Revision, policy = canonical }, JsonOptions);
+        }
+        else bytes = JsonSerializer.SerializeToUtf8Bytes(new { schemaVersion = 1, revision = policy.Revision, domains = policy.Domains });
         if (bytes.Length > MaximumFileBytes) throw new ArgumentException("Policy exceeds storage limit");
         var directory = Path.GetDirectoryName(_path)!;
         var temporary = Path.Combine(directory, ".policy-" + Guid.NewGuid().ToString("N") + ".tmp");
@@ -109,6 +131,21 @@ public sealed class PolicyPersistence
             catch (IOException) { EngineLog.Warning("Persistence", "Uncommitted temporary file retained"); }
             catch (UnauthorizedAccessException) { EngineLog.Warning("Persistence", "Uncommitted temporary file retained"); }
         }
+    }
+
+    internal static void RejectDuplicateProperties(JsonElement value)
+    {
+        if (value.ValueKind == JsonValueKind.Object)
+        {
+            var names = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var property in value.EnumerateObject())
+            {
+                if (!names.Add(property.Name)) throw new ArgumentException("Duplicate property");
+                RejectDuplicateProperties(property.Value);
+            }
+        }
+        else if (value.ValueKind == JsonValueKind.Array)
+            foreach (var item in value.EnumerateArray()) RejectDuplicateProperties(item);
     }
 
     private void RejectLink()

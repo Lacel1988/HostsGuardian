@@ -29,7 +29,7 @@ internal static class Phase5DTests
         bytes.AddRange(new byte[] { 0, 0, 1, 0, 1 });
         return bytes.ToArray();
     }
-    private sealed class Fixture : IAsyncDisposable
+    internal sealed class Fixture : IAsyncDisposable
     {
         public UdpClient Upstream { get; } = new(new IPEndPoint(IPAddress.Loopback, 0));
         public EngineConfig Config { get; }
@@ -285,7 +285,7 @@ internal static class Phase5DTests
         await asyncTest("Phase5D failed persistence does not advance committed revision", async () =>
         {
             await using var f = new Fixture(directory); f.Policy.Replace(new[] { "explicit.invalid" });
-            using var file = new FileStream(f.Config.PolicyFilePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+            using var file = new PolicyWriteFailureFixture(f.Config.PolicyFilePath);
             var result = f.Policy.Replace(new[] { "other.invalid" });
             var status = f.Dns.RuntimeStatus.GetSnapshot();
             Check(!result.Success && status.PolicyRevision == 1 && status.CommittedRuleCount == 1 && status.PersistenceFault == "PolicyWriteFailed", "False commit after disk failure");
@@ -293,7 +293,7 @@ internal static class Phase5DTests
         await asyncTest("Phase5D failed persistence returns API failure and no GUI confirmation", async () =>
         {
             await using var f = new Fixture(directory); f.Policy.Replace(new[] { "explicit.invalid" }); await f.Api.StartAsync();
-            using var file = new FileStream(f.Config.PolicyFilePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+            using var file = new PolicyWriteFailureFixture(f.Config.PolicyFilePath);
             var result = await new DnsEngineService().ReplacePolicyAsync(f.ClientConfig, new[] { "other.invalid" });
             Check(!result.Confirmed && result.Connection.State == ConnectionState.EngineError && result.CommittedRevision == null && result.Connection.Message.Contains("503"), "API/client false success");
             Check(f.Policy.State.GetSnapshot().Revision == 1, "Rejected update advanced revision");
@@ -336,7 +336,9 @@ internal static class Phase5DTests
         {
             var service = new DnsEngineService(() => new HttpClient(new Handler(request => request.RequestUri!.AbsolutePath switch
             {
-                "/rules/blocked/replace" => Json(new { ok = true, revision = 1, count = 1 }),
+                "/v2/policy" => Json(new FullPolicyRead(0, FullDnsPolicy.Empty, "fixture")),
+                "/v2/capabilities" => Json(new { policySchemaVersion = 2, fullPolicyReadback = true, optimisticConcurrency = true }),
+                "/v2/policy/replace" => Json(new { ok = true, revision = 1, count = 1 }),
                 "/health" => Json(new { engine = "HostsGuardian.DnsEngine", apiVersion = 1 }),
                 _ => Json(ValidStatus(2))
             })));
@@ -377,7 +379,7 @@ internal static class Phase5DTests
         await asyncTest("Phase5D explicit retry after persistence failure restores truthful status", async () =>
         {
             await using var f = new Fixture(directory); f.Policy.Replace(new[] { "explicit.invalid" });
-            using (var file = new FileStream(f.Config.PolicyFilePath, FileMode.Open, FileAccess.Read, FileShare.Read))
+            using (var file = new PolicyWriteFailureFixture(f.Config.PolicyFilePath))
                 Check(!f.Policy.Replace(new[] { "other.invalid" }).Success, "Locked commit succeeded");
             Check(f.Policy.Replace(new[] { "other.invalid" }).Success, "Explicit recovery failed");
             var status = f.Api.GetDnsStatus();
@@ -407,11 +409,14 @@ internal static class Phase5DTests
             var source = File.ReadAllText(Path.Combine(root!.FullName, "HostsGuardian.Wpf", "ViewModels", "MainViewModel.cs"));
             var constructor = source.IndexOf("public MainViewModel(", StringComparison.Ordinal);
             var initialNavigation = source.IndexOf("ShowDomains();", constructor, StringComparison.Ordinal);
-            var timer = source.IndexOf("var statusTimer =", constructor, StringComparison.Ordinal);
-            Check(timer > constructor && timer < initialNavigation && source.IndexOf("var statusTimer =", timer + 1, StringComparison.Ordinal) < 0, "Timer is conditional or duplicated");
+            var timer = source.IndexOf("_statusTimer = new", constructor, StringComparison.Ordinal);
+            Check(source.Contains("public MainViewModel() : this(null, true)") && timer > constructor && timer < initialNavigation &&
+                source.IndexOf("_statusTimer = new", timer + 1, StringComparison.Ordinal) < 0 &&
+                source.Contains("_statusTimer.Tick += (_, _) => UpdateDnsEngineStatusText();") && source.Contains("_statusTimer?.Stop();"),
+                "Production WPF must retain one passive expiration timer with disposal");
             var commands = source.Substring(source.IndexOf("private async void TestDnsEngine()", StringComparison.Ordinal));
             commands = commands[..commands.IndexOf("// ===================== LOG COMMAND", StringComparison.Ordinal)];
-            Check(!commands.Contains("Task.Run") && commands.Contains("ReplacePolicyAsync") && commands.Contains("confirmation.CommittedRevision"), "WPF ignores confirmed response");
+            Check(!commands.Contains("Task.Run") && commands.Contains("ReplaceFullPolicyAsync") && commands.Contains("confirmation.Readback?.Revision") && commands.Contains("_fullPolicyBaseline.Revision"), "WPF ignores confirmed response");
         });
         await asyncTest("Phase5D management bind failure does not start DNS or retain resources", async () =>
         {

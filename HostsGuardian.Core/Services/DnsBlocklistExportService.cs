@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -15,7 +15,7 @@ namespace HostsGuardian.Core.Services
                 .Where(d => d != null && d.DnsBlocked)
                 .Select(d => (d?.Domain ?? "").Trim())
                 .Where(d => !string.IsNullOrWhiteSpace(d))
-                .Select(HostsService.NormalizeDomain)
+                .Select(DomainName.Normalize)
                 .Where(d => !string.IsNullOrWhiteSpace(d) && d.Contains('.'))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .OrderBy(d => d, StringComparer.OrdinalIgnoreCase)
@@ -40,7 +40,7 @@ namespace HostsGuardian.Core.Services
                 .Where(d => d != null && d.DnsBlocked)
                 .Select(d => (d?.Domain ?? "").Trim())
                 .Where(d => !string.IsNullOrWhiteSpace(d))
-                .Select(HostsService.NormalizeDomain)
+                .Select(DomainName.Normalize)
                 .Where(d => !string.IsNullOrWhiteSpace(d) && d.Contains('.'))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .OrderBy(d => d, StringComparer.OrdinalIgnoreCase)

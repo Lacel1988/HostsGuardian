@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=HostsGuardian Monitor
+Comment=Local Engine operations, health and diagnostics
+Exec=/usr/bin/hostsguardian-monitor
+TryExec=/usr/bin/hostsguardian-monitor
+Terminal=false
+Categories=System;Monitor;

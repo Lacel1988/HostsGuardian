@@ -14,11 +14,12 @@ public sealed class DnsProxyServer : IAsyncDisposable
     private Task? _receiveLoop;
     private int _activeRequests;
     private readonly BoundedEventLog _log = new();
-    private readonly Func<byte[], CancellationToken, Task<byte[]?>> _processRequest;
+    private readonly Func<byte[], CancellationToken, Task<byte[]?>>? _processRequest;
     private readonly Func<UdpClient, CancellationToken, ValueTask<UdpReceiveResult>> _receive;
     public int ActiveRequestCount => Volatile.Read(ref _activeRequests);
 
     public EngineRuntimeStatus RuntimeStatus { get; }
+    public DnsTelemetry Telemetry { get; }
     public EnginePolicyState PolicyState { get; } = new();
     public bool IsRunning => RuntimeStatus.GetSnapshot().UdpListening;
     internal Task Completion => _receiveLoop ?? Task.CompletedTask;
@@ -38,9 +39,11 @@ public sealed class DnsProxyServer : IAsyncDisposable
         _settings = settings;
         _receive = receive ?? ((listener, token) => listener.ReceiveAsync(token));
         var upstream = new UpstreamRuntimeState();
+        Telemetry = new(settings);
         RuntimeStatus = new EngineRuntimeStatus(settings, rules.InstanceId, PolicyState, upstream);
-        _processor = new DnsRequestProcessor(rules, settings, new UpstreamDnsForwarder(settings, upstream), PolicyState);
-        _processRequest = processRequest ?? _processor.ProcessAsync;
+        RuntimeStatus.Diagnostics = new EngineDiagnostics(RuntimeStatus, Telemetry, rules.InstanceId);
+        _processor = new DnsRequestProcessor(rules, settings, new UpstreamDnsForwarder(settings, upstream, null, Telemetry), PolicyState, Telemetry);
+        _processRequest = processRequest;
     }
 
     public void Start() => StartAsync().GetAwaiter().GetResult();
@@ -112,6 +115,8 @@ public sealed class DnsProxyServer : IAsyncDisposable
                     throw;
                 }
 
+                var receivedAtUtc = DateTimeOffset.UtcNow;
+                Telemetry.Received(DnsTransport.Udp);
                 // Observe/reap completed work before admission. No unbounded queue or Task.Run.
                 for (var index = requests.Count - 1; index >= 0; index--)
                 {
@@ -121,10 +126,11 @@ public sealed class DnsProxyServer : IAsyncDisposable
                 }
                 if (requests.Count >= _settings.MaxConcurrentUdpRequests)
                 {
+                    Telemetry.Rejected(capacity: true);
                     _log.Warning("DNS", "UDP capacity reached; newest datagram dropped");
                     continue;
                 }
-                requests.Add(ProcessDatagramAsync(listener, request, cancellationToken));
+                requests.Add(ProcessDatagramAsync(listener, request, DnsRequestContext.From(DnsTransport.Udp, request.RemoteEndPoint, receivedAtUtc), cancellationToken));
             }
         }
         catch
@@ -141,18 +147,18 @@ public sealed class DnsProxyServer : IAsyncDisposable
         }
     }
 
-    private async Task ProcessDatagramAsync(UdpClient listener, UdpReceiveResult request, CancellationToken cancellationToken)
+    private async Task ProcessDatagramAsync(UdpClient listener, UdpReceiveResult request, DnsRequestContext context, CancellationToken cancellationToken)
     {
         Interlocked.Increment(ref _activeRequests);
         try
         {
-            var response = await _processRequest(request.Buffer, cancellationToken).ConfigureAwait(false);
+            var response = await (_processRequest == null ? _processor.ProcessReceivedAsync(request.Buffer, context, cancellationToken) : _processRequest(request.Buffer, cancellationToken)).ConfigureAwait(false);
             if (response != null && !cancellationToken.IsCancellationRequested)
                 await listener.SendAsync(response.AsMemory(), request.RemoteEndPoint, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex) when (cancellationToken.IsCancellationRequested &&
             ex is OperationCanceledException or ObjectDisposedException or SocketException) { }
-        catch (Exception) { _log.Warning("DNS", "Request processing or UDP response failed"); }
+        catch (Exception) { Telemetry.TransportFailed(); _log.Warning("DNS", "Request processing or UDP response failed"); }
         finally { Interlocked.Decrement(ref _activeRequests); }
     }
 

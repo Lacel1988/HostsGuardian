@@ -1,0 +1,8 @@
+#!/usr/bin/python3
+import sys
+sys.path.insert(0, "/usr/lib/hostsguardian-monitor")
+from monitor import Monitor
+import os
+if os.geteuid() == 0:
+    raise SystemExit("Run as a graphical-session user, never root.")
+Monitor().run(sys.argv)

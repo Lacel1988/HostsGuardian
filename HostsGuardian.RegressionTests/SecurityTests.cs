@@ -21,7 +21,8 @@ internal static class SecurityTests
     {
         var token = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
         var wrong = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
-        var store = new ProtectedCredentialStore(Path.Combine(directory, "protected"));
+        var protectedStore = new ProtectedCredentialStore(Path.Combine(directory, "protected"));
+        ICredentialStore store = OperatingSystem.IsWindows() ? protectedStore : new FixtureCredentialStore();
         var id = Guid.NewGuid().ToString("N");
         test("credential parsing and strict authorization", () =>
         {
@@ -30,12 +31,20 @@ internal static class SecurityTests
                 Check(!ManagementSecurity.Authorize(headers, expected), "Invalid authorization accepted");
             Check(ManagementSecurity.Authorize(new[] { "Bearer " + token }, expected), "Valid token rejected");
         });
-        test("DPAPI round-trip and corrupt/missing credential fail closed", () =>
+        if (OperatingSystem.IsWindows()) test("DPAPI round-trip and corrupt/missing credential fail closed", () =>
         {
             store.Write(id, token); Check(store.Read(id) == token, "DPAPI roundtrip failed");
             Check(!Encoding.UTF8.GetString(File.ReadAllBytes(Path.Combine(directory,"protected",id+".bin"))).Contains(token), "Plaintext protected file");
             Check(store.Read(Guid.NewGuid().ToString("N")) == null, "Missing credential accepted");
             File.WriteAllText(Path.Combine(directory,"protected",id+".bin"), "corrupt"); Check(store.Read(id) == null, "Corrupt credential accepted"); store.Write(id, token);
+        });
+        else test("Non-Windows protected credential storage refuses writes and reads fail closed", () =>
+        {
+            Check(protectedStore.Read(id) == null, "Unsupported credential read succeeded");
+            try { protectedStore.Write(id, token); throw new Exception("Unsupported credential write succeeded"); }
+            catch (PlatformNotSupportedException) { }
+            Check(!Directory.Exists(Path.Combine(directory, "protected")), "Unsupported storage created credential files");
+            store.Write(id, token); // Seed only the in-memory Linux client fixture.
         });
         test("normal serialization and sentinel export/log redaction", () =>
         {
@@ -65,7 +74,7 @@ internal static class SecurityTests
             var path = Path.Combine(directory,"locked-migration.json");
             File.WriteAllText(path,"{\"DnsEngine\":{\"ApiToken\":\""+token+"\"}}");
             var original = File.ReadAllText(path); var service = new ConfigService(path); var cfg = service.Load();
-            using (var locked = new FileStream(path,FileMode.Open,FileAccess.Read,FileShare.Read))
+            using (var locked = new PolicyWriteFailureFixture(path))
             {
                 try { service.MigrateCredential(cfg,store); throw new Exception("Locked migration succeeded"); } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
                 Check(File.ReadAllText(path) == original && cfg.DnsEngine.CredentialId == "", "Failed replacement destroyed original");
@@ -137,7 +146,7 @@ internal static class SecurityTests
             var endpoint = $"https://127.0.0.1:{config.ApiPort}";
             await asyncTest("all management endpoints authenticate before policy access", async () =>
             {
-                foreach (var route in new[] { "/", "/health", "/dns/status", "/rules/blocked", "/rules/blocked/replace", "/rules/blocked/add", "/rules/blocked/remove", "/unknown" })
+                foreach (var route in new[] { "/", "/health", "/dns/status", "/rules/blocked", "/rules/blocked/replace", "/rules/blocked/add", "/rules/blocked/remove", "/v2/capabilities", "/v2/policy", "/v2/policy/replace", "/v2/bindings", "/v2/bindings/replace", "/v2/effective-policy", "/v2/dns-observations", "/unknown" })
                 foreach (var header in new[] { "", "Bearer ", "Bearer invalid", "Bearer "+wrong, "Bearer "+token+",Bearer "+token })
                 {
                     using var message = new HttpRequestMessage(route.Contains("replace") || route.EndsWith("add") || route.EndsWith("remove") ? HttpMethod.Post : HttpMethod.Get,endpoint+route);
@@ -180,6 +189,39 @@ internal static class SecurityTests
                 using var udp = new UdpClient(); await udp.SendAsync(Encoding.ASCII.GetBytes("POST /rules/blocked/replace"),new IPEndPoint(IPAddress.Loopback,config.DnsListenPort));
                 await Task.Delay(100); Check(before.SequenceEqual(rules.GetBlockedDomains()),"DNS mutated management policy"); dns.Stop();
             });
+            await asyncTest("Integrated authenticated API full policy CAS readback binding generation and explanation", async () =>
+            {
+                var before = await client.ReadFullPolicyAsync(clientConfig);
+                Check(before.Connection.Ok && before.Policy != null, "Full read failed");
+                var device = Guid.NewGuid();
+                var full = PolicyCanonicalization.Canonicalize(new(2, ["blocked.invalid"], [new(device, "Fixture TV", null, "fixture", "explicit review")],
+                    [new(device, "blocked.invalid", DeviceDomainRuleState.Allow)]));
+                var confirmation = await client.ReplaceFullPolicyAsync(clientConfig, new(before.Policy!.Revision, full, before.Policy.InstanceId));
+                Check(confirmation.Confirmed && confirmation.Readback!.Policy.Overrides.SequenceEqual(full.Overrides), "Full canonical readback failed");
+                var conflict = await client.ReplaceFullPolicyAsync(clientConfig, new(before.Policy.Revision, FullDnsPolicy.Empty, before.Policy.InstanceId));
+                Check(!conflict.Confirmed && conflict.Connection.State == ConnectionState.EngineError, "Stale revision accepted");
+                var mappings = await client.ReadBindingsAsync(clientConfig); Check(mappings.Bindings != null, "Bindings read failed");
+                var options = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
+                using var bind = new HttpRequestMessage(HttpMethod.Post, endpoint + "/v2/bindings/replace");
+                bind.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+                var now = DateTimeOffset.UtcNow;
+                bind.Content = new StringContent(JsonSerializer.Serialize(new BindingReplace(mappings.Bindings!.Generation,
+                    [new("192.0.2.1", null, device, "fixture", now.AddSeconds(-1), now.AddMinutes(1), true)]), options));
+                using var bindResponse = await http.SendAsync(bind); Check(bindResponse.IsSuccessStatusCode, "Bindings update failed");
+                using var explain = new HttpRequestMessage(HttpMethod.Get, endpoint + "/v2/effective-policy?address=192.0.2.1&domain=blocked.invalid");
+                explain.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+                using var explained = await http.SendAsync(explain);
+                using var explanation = JsonDocument.Parse(await explained.Content.ReadAsStringAsync());
+                Check(explained.IsSuccessStatusCode && !explanation.RootElement.GetProperty("blocked").GetBoolean()
+                    && explanation.RootElement.GetProperty("deviceId").GetGuid() == device, "Explanation differs from policy");
+                var afterMapping = await client.ReadFullPolicyAsync(clientConfig);
+                Check(afterMapping.Policy!.Revision == confirmation.Readback!.Revision, "Mapping advanced policy revision");
+                using var duplicate = new HttpRequestMessage(HttpMethod.Post, endpoint + "/v2/policy/replace");
+                duplicate.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+                duplicate.Content = new StringContent("{\"expectedRevision\":1,\"policy\":{\"schemaVersion\":2,\"schemaVersion\":2}}");
+                using var duplicateResponse = await http.SendAsync(duplicate);
+                Check(duplicateResponse.StatusCode == HttpStatusCode.BadRequest, "Nested duplicate accepted");
+            });
         }
         finally { dns.Stop(); await api.StopAsync(); }
         await asyncTest("HTTPS redirects are refused without sending to destination", async () =>
@@ -205,4 +247,17 @@ internal static class SecurityTests
     { protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,CancellationToken ct) => Task.FromResult(send(request)); }
     private sealed class FailingStore : ICredentialStore
     { public string? Read(string id) => null; public void Write(string id,string token) => throw new IOException("fixture storage failure"); public void Delete(string id) {} }
+    // Linux migration tests exercise ICredentialStore orchestration, not Windows DPAPI.
+    private sealed class FixtureCredentialStore : ICredentialStore
+    {
+        private readonly Dictionary<string, string> _values = new();
+        public string? Read(string id) => _values.GetValueOrDefault(id);
+        public void Write(string id, string token)
+        {
+            if (!Guid.TryParseExact(id, "N", out _) || ManagementSecurity.ParseToken(token) == null)
+                throw new ArgumentException("Invalid fixture credential");
+            _values[id] = token;
+        }
+        public void Delete(string id) => _values.Remove(id);
+    }
 }

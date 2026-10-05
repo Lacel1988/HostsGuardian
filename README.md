@@ -1,100 +1,132 @@
 # HostsGuardian
 
-HostsGuardian is a custom C# DNS filtering system with a Windows WPF control plane and an Engine targeting Linux x64. It combines explicit domain policy, local Windows hosts-file blocking, and network DNS filtering without depending on another filtering engine.
+**[English](README.md) | [Magyar](README.hu.md)**
 
-## Why HostsGuardian
+A custom DNS filtering system built with C#/.NET, a Windows WPF policy Control Center, and a native Linux operations Monitor.
 
-The project explores a readable, testable DNS service with separate transport, policy, persistence, and management responsibilities. It is a portfolio project under active development, not a deployment-certified network appliance.
+> **v0.3.0 is an accepted development checkpoint, not a production-ready release.** HostsGuardian is pre-1.0. Acceptance covers the documented Windows and Linux workflows; whole-LAN and additional real-device coverage remain pending. Product checkpoint version: **0.3.0**; Git tag: **v0.3.0**.
+
+HostsGuardian separates user decisions, DNS execution, and operational evidence. Its focus is explicit policy delivery, truthful status, bounded diagnostics, and recovery without silently changing filtering rules.
 
 ## Architecture
 
-```text
-Windows WPF -> Core -> local Windows hosts file
-      |
-      +-> authenticated HTTPS management, port 3000 -> custom Engine
-
-LAN clients -> UDP/TCP DNS, port 53 -> HostsGuardian.DnsEngine
-                                    |-> shared DnsRequestProcessor / RuleStore
-                                    +-> configured upstream DNS over UDP
+```mermaid
+flowchart LR
+    User[User decisions] --> WPF[HostsGuardian.Wpf - Windows Control Center]
+    WPF -->|Authenticated HTTPS Management API| Engine[HostsGuardian.DnsEngine - Linux DNS Engine]
+    LAN[LAN DNS clients] -->|UDP / TCP DNS| Engine
+    Engine -->|Allowed queries over UDP| Upstream[Configured upstream DNS]
+    Engine -->|Protected local snapshots| Monitor[HostsGuardian Monitor - Linux operations]
+    Monitor -->|Confirmed actions through D-Bus / polkit| Systemd[systemd]
+    Systemd -->|Service lifecycle| Engine
+    Core[HostsGuardian.Core - shared contracts] -.-> WPF
+    Core -.-> Engine
 ```
 
-WPF is the primary user-facing management client and is outside the DNS packet path. Core supplies shared models, policy selection, Windows services, and the management client. The custom Engine owns DNS processing, committed policy, and its management API. Linux x64 is the deployment target; no particular host or ISP is required. The solution retains a legacy Console project, which is not the intended Engine control plane.
+| Component | Responsibility |
+|---|---|
+| `HostsGuardian.Wpf` | Windows Control Center: policy drafts, explicit user decisions, secure management, and status presentation. |
+| `HostsGuardian.DnsEngine` | Custom Linux DNS filtering/execution Engine: requests, global/device policy, persistence, analysis, and the Management API. |
+| HostsGuardian Monitor (`linux-monitor`) | Local Linux operations, diagnostics, and observability. It displays Engine evidence and does not edit policy. |
+| `HostsGuardian.Core` | Shared contracts, policy/domain logic, and management client services where applicable. |
 
-## How filtering works
+**LAN DNS traffic does not pass through WPF.** The GUI talks to the Engine over authenticated HTTPS; DNS clients talk directly to the Engine. systemd owns the independent Engine service. Closing either GUI does not stop DNS; Monitor Start/Stop/Restart are separate explicit operations.
 
-- Domains must be explicitly selected for **HOSTS**, **DNS**, or both. Missing flags do not authorize filtering. Saving GUI preferences does not apply hosts changes or push DNS policy.
-- Local hosts application uses only HOSTS-selected names, with IPv4 `0.0.0.0` and IPv6 `::1` entries for the exact name and its `www` alias. It preserves unrelated content, recognizes existing markers, and backs up before writes. Hosts entries have no wildcard semantics.
-- Explicit DNS push replaces Engine policy with DNS-selected names. A selected name also matches its descendants; selecting a subdomain does not authorize its parent.
-- Blocked A queries receive the configured blocked IPv4 address (default `0.0.0.0`). Blocked AAAA queries receive NOERROR with an empty answer. Other record types are forwarded; this is not an all-record-type policy engine.
-- Allowed requests use the configured UDP upstream. Client UDP and TCP share `DnsRequestProcessor`.
+## Accepted capabilities
 
-Discovery is best-effort. Normalized MAC addresses are preferred persisted identities, IP addresses are current observations, and legacy IP-only policy is not automatically assigned to a different device. Saved device preferences do not constitute complete per-device Engine enforcement: the current domain ruleset is global.
+- **Custom UDP/TCP DNS:** shared request processing, bounded concurrency, framed TCP queries, finite upstream retries, and explicitly configured fallback. No third-party filtering engine is required. Allowed queries are forwarded; global and device decisions are evaluated by the Engine.
+- **Global and per-device policy:** global domain rules plus `Inherit` / `Allow` / `Block` overrides, with parent/subdomain boundaries. Device evaluation has isolated regression coverage; populated real-device acceptance remains pending.
+- **Stable identity:** durable immutable `DeviceId` values are separate from IP addresses and discovery metadata. Immutable policy/binding snapshots use validated, expiring IP observations. Unknown/stale/ambiguous identity uses global policy; discovery alone does not authorize a binding.
+- **Explicit delivery/readback:** local edits remain drafts. Full replacement checks expected revision and Engine instance. Synchronization requires acknowledgement, canonical policy readback, and matching authenticated status; connectivity alone is insufficient.
+- **Safe Mode and recovery:** confirmed runtime bypass preserves committed rules and revision. Exit requires valid policy and readback. Restart restores committed policy; corrupt/unavailable policy enters protective bypass instead of inventing rules. Safe Mode cannot repair an unreachable upstream or failed host.
+- **Persistence:** updates persist before acknowledgement; failed writes retain the prior revision. Processing and shutdown are bounded, and service lifetime is independent of GUI lifetime.
+- **Windows UX:** dark/green Control Center, six separate expiring operational states, persistent live EN/HU switching, localized contextual tooltips, device-policy presentation, and severity filters. Ordinary Windows HOSTS filtering controls are retired; legacy cleanup is a separate explicit migration helper.
+- **Notifications/audit:** localized in-app notifications, unread/critical state, deduplication/recovery, and structured local audit events. Historical raw messages and OS exceptions retain their source language. Native Windows toast activation is deferred.
+- **Unified Linux Monitor:** Overview, Diagnostics, Events / Incidents, and Details in one GTK4 application. Start/Stop/Restart require confirmation, existing systemd D-Bus/polkit authorization, and actual service/PID readback.
+- **Diagnostics V1/operational events:** bounded counters, latency/resource/pressure evidence, in-memory graphs, and structured Warning/Critical/Recovery incidents. The Engine produces analysis; Monitor presents protected local snapshots. Missing/stale evidence remains Unknown. Policy blocks count as successful filtering.
 
-## Security
+Accepted Monitor source/package identity: **`0.3.0+unified1`**. The retained Windows-accepted WPF uses its existing notification model; candidate automatic operational-event polling is not integrated into this checkpoint.
 
-Management uses HTTPS on port 3000 with bearer authentication on every endpoint. Missing or invalid credentials/certificates prevent management startup; DNS starts only after management startup succeeds. WPF protects saved credentials with Windows DPAPI and requires explicit certificate enrollment with independent SHA-256 fingerprint verification. Live checks verify enrolled identity, host identity, validity, and server-auth use. There is no HTTP downgrade or silent enrollment.
+## Security and deployment
 
-WPF is the intended client; token possession authenticates access, not executable identity. Keep management private through appropriate binding and network/firewall restrictions. The default binding is loopback. Certificates and credentials are explicit deployment inputs, not repository assets. Internet remote-management/protection workflows are not implemented.
+The Management API requires **HTTPS and bearer authentication**. Windows saves credentials using DPAPI. Certificate enrollment is explicit, with independent fingerprint verification; connections validate enrolled identity, host identity, validity, and server-auth usage. There is no silent enrollment or HTTP downgrade. Authentication proves credential possession, not executable identity.
 
-## Reliability and Safe Mode
+The Engine is a separate Linux systemd service; desktop applications run without routine administrator/root privileges. Monitor reads trusted local evidence and requests only fixed-unit actions through existing interactive authorization. Its package installs no new systemd unit/drop-in or polkit privilege grant. Credentials, certificates, private keys, production policy, and machine-specific configuration are deployment inputs, not repository assets. LAN DNS routing requires separate planning and acceptance.
 
-- Authorized management updates commit policy to disk before acknowledging success. Restart restores committed normalized policy and its revision; startup generates no blocked domains.
-- Corrupt/unavailable policy enters Emergency Safe Mode with no active filtering. Explicit authenticated replacement preserves rejected evidence and requires a separate Safe Mode exit.
-- Safe Mode bypasses filtering through the same upstream path without deleting policy or changing its revision. It is runtime state, not persisted across restart. It cannot recover a failed host or unreachable upstream.
-- UDP work is bounded: default 16 requests, configurable from 1–64. At capacity the newest datagram is dropped. Below capacity a slow upstream request does not serialize unrelated local blocked replies. Shutdown cancels and awaits owned work.
-- TCP supports sequential framed queries with a 16-connection cap and bounded frame I/O.
-- Upstream retries are finite. Default: two attempts at 2.5 seconds each against the primary. Optional explicitly configured fallback follows primary failure; no fallback is silently invented. The existing primary default is `1.1.1.1` and is configurable.
-- Upstream replies are checked for source endpoint, transaction ID, response/question correlation, wire-label identity, and structural bounds. Supported queries receive SERVFAIL when forwarding fails.
+## Screenshots
 
-Health/status and Test Connection are policy read-only. Connectivity, listener state, filtering/Safe Mode, policy revision, and passive upstream observations are separate concepts. Unreachability does not prove filtering has been disabled. WPF displays confirmed runtime, listener, filtering and policy snapshots; failed/expired observations become unknown. Policy synchronization requires a matching acknowledged revision. WPF provides explicit, guarded Safe Mode enter/exit commands confirmed by authenticated status and read-only operational details. A revision history dashboard remains unimplemented. See [Safe Mode source gate S1](docs/phase5e-s1-safe-mode-gui.md).
+**Windows Control Center, Hungarian:** preserved regression-fixture render of the accepted layout. Unknown states are fixture data, not a live production connection.
 
-## Development and testing
+![Hungarian Control Center with dark/green Router view](docs/assets/v0.3.0/wpf-control-center-hu.png)
 
-Use the .NET 8 SDK on Windows for the complete solution, including WPF:
+**Installed Unified Monitor, Overview:** preserved read-only verification capture with controls disabled. Listening does not prove end-to-end DNS. The captured assembly version is historical runtime metadata, not the proposed product version.
+
+![Unified Monitor Overview showing Running and unknown upstream evidence](docs/assets/v0.3.0/monitor-overview.png)
+
+**Installed Unified Monitor, Diagnostics:** no natural DNS traffic or successful upstream latency samples were observed in this capture; empty graphs do not invent activity.
+
+![Unified Monitor Diagnostics with zero traffic and unavailable latency samples](docs/assets/v0.3.0/monitor-diagnostics.png)
+
+[Screenshot provenance and hashes](docs/assets/v0.3.0/README.md)
+
+## Verification and status
+
+Verified on **2026-10-05**, after accepted Vivo-source reconciliation:
+
+| Check | Result | Coverage |
+|---|---|---|
+| Core/Engine | **202 regression groups PASS** | DNS/policy/security/persistence, diagnostics, incidents, and integrated behavior in isolated fixtures. |
+| WPF | **11 regression groups PASS** | Actual bindings, EN/HU switching, notifications, layout, and rejected-save rollback. |
+| Monitor on Windows | **31 PASS; 11 GTK/platform tests skipped** | 42 tests discovered. Skips are neither failures nor executed Linux GUI tests. |
+| Solution rebuild | **0 errors** | Existing dependency/platform warnings remain. |
+| Vivo Unified Monitor runtime/deployment | **PASS within documented coverage** | Installed `0.3.0+unified1`; real GUI Stop/Start/Restart through confirmation + polkit/systemd, fresh evidence, and Engine independence. |
+| Windows WPF runtime/human acceptance | **PASS within documented coverage** | Non-administrator launch, layout, language persistence, authenticated Engine access, truthful expiry, Safe Mode, drafts, and close/reopen independence. |
+| Source reconciliation | **PASS** | Monitor/Core/Engine manifest hashes and preserved Debian package payload match; accepted Windows WPF source retained. |
+
+The Debian package was not rebuilt on Windows. Source/payload identity is verified; bit-identical binaries across toolchains are not claimed. See the [v0.3.0 checkpoint record](docs/checkpoint-v0.3.0.md) for scope and pending coverage.
+
+### Build and regression checks
+
+The Windows projects target .NET 8; WPF requires Windows. Monitor uses Python 3, GTK4/PyGObject, and systemd D-Bus. These commands build/test source without installing or deploying it:
 
 ```powershell
-dotnet restore HostsGuardian.sln
-dotnet restore HostsGuardian.RegressionTests/HostsGuardian.RegressionTests.csproj
-dotnet build HostsGuardian.sln --no-restore -t:Rebuild
-dotnet run --project HostsGuardian.RegressionTests/HostsGuardian.RegressionTests.csproj --no-restore
+dotnet build HostsGuardian.sln
+dotnet run --project HostsGuardian.RegressionTests
+dotnet run --project HostsGuardian.Wpf.RegressionTests
 ```
 
-The regression executable is separate from the solution build. Tests use temporary policy/security/hosts fixtures and high loopback ports; they do not query public DNS or change real hosts/network configuration.
+Run the Monitor suite from its own directory:
 
-Verified Phase 5C baseline: **100/100 regression groups pass** (75 earlier groups preserved, 25 added). Complete rebuild: **0 errors**, **6 existing CA1416** platform warnings and **2 existing NU1701** package compatibility warnings; no new warnings.
+```text
+cd linux-monitor
+python -m unittest discover -v
+```
 
-**Automated verification does not establish real Linux/LAN deployment readiness.** Source/build verification also does not replace manual GUI review.
-
-See [management security](docs/phase-4-review.md), [policy and Safe Mode](docs/phase5a-policy-and-safe-mode.md), [client TCP DNS](docs/phase5b-tcp-dns.md), and [current upstream configuration/reliability](docs/phase5c-upstream-reliability.md). Earlier phase documents are historical milestone records. Engine startup requires explicit credential/certificate paths; build/test commands perform no production provisioning or deployment.
-
-Phase 5D verification: **141/141 regression groups pass** (all 100 Phase 5C groups preserved, 41 failure/status groups added). Rebuild remains **0 errors**, the same **8 existing warnings**, and no new warnings. See [runtime/status/recovery hardening](docs/phase5d-runtime-status-recovery.md). These are automated source-level checks; Phase 5E deployment verification has not begun.
+GTK tests require the appropriate Linux graphical environment. Results do not authorize production service/network changes. Linux packaging requires executable `debian/rules` and Monitor launcher files.
 
 ## Current limitations
 
-- Upstream is UDP only. Truncated replies produce failure/SERVFAIL; upstream TCP recovery is not implemented, including for TCP clients.
-- IPv6 upstreams are unsupported by configuration; real-network IPv6 behavior is not verified. DNS listeners currently bind IPv4.
-- Root-only questions and unsupported client message forms remain unsupported. Validation is not DNSSEC or a complete record-semantic validator.
-- Real Linux startup, filesystem durability, service permissions, port-53 conflicts, and LAN interoperability need verification. Persistence does not promise durability beyond the underlying filesystem/platform.
-- Router/DHCP control is not verified. Discovery is heuristic, includes `/24` assumptions, and is not authoritative.
-- Remote DNS protection, Internet remote management, network portability/awareness, discovery/pairing, and a Linux Engine Monitor are future work.
+- **Pre-1.0:** this development checkpoint is not a production-ready network appliance.
+- **Phase 5E-8 remains paused:** whole-LAN/router-DHCP acceptance is pending; not every client's DNS routing is proven.
+- **Natural DNS/incident coverage is incomplete:** windows without natural queries/incidents do not prove delivery coverage. No synthetic production incidents were generated to close these gaps.
+- **Populated per-device real-device acceptance is pending.** Validated IPv4 bindings are the supported identity model; IPv6 device enforcement and identity lost through NAT/router DNS proxies are not claimed.
+- **`NeedDaemonReload=yes` is a known deployment caveat under investigation.** It was preserved during acceptance; no reload/systemd change is implied here.
+- **Native Windows toast activation remains deferred.** In-app notifications are available; historical raw/OS messages may remain English.
+- Diagnostics history is bounded/in-memory. No natural upstream observation means Unknown, not confirmed success. Graphical-login autostart configuration was inspected without logout/reboot acceptance.
 
-## Roadmap and development status
+## Roadmap — not implemented by this checkpoint
 
-| Milestone | Status |
-| --- | --- |
-| Phases 1–2: hosts, explicit domain policy and device identity correctness | Completed |
-| Phase 3: custom Engine as sole DNS filtering implementation; dnsmasq removed from execution | Completed |
-| Phase 4: HTTPS management, authentication, protected credentials and trust | Completed |
-| Phase 5A: committed policy, persistence, revisions and Safe Mode | Completed |
-| Phase 5B: client TCP DNS | Completed |
-| Phase 5C: upstream reliability and bounded UDP concurrency | Completed |
-| Phase 5D: runtime/status/recovery/failure hardening | Completed (source/automated verification) |
-| Phase 5E: real Linux/LAN integration and deployment verification | Planned |
+1. Newest-first WPF Log ordering, preserved after severity filtering.
+2. Broader populated-device, natural-traffic/incident, accessibility, and desktop automation coverage.
+3. Investigate the systemd reload caveat and complete deferred toast activation with explicit review.
+4. Resume Phase 5E-8 whole-LAN/router-DHCP acceptance only when separately authorized.
 
-Later candidates include network portability/awareness, discovery/pairing, remote management/protection, and a [read-only Linux Engine Monitor](docs/future-linux-engine-monitor.md). They are not implemented features. HostsGuardian remains an actively developed prototype; deployment conflicts and configuration require explicit review.
+## Further reading
 
-## Projekt állapota: Fejlesztés alatt
+- [Unified Monitor architecture](docs/linux-monitor-unified.md)
+- [Diagnostics V1 contracts and metrics](docs/linux-diagnostics-console-v1.md)
+- [WPF localization/notification foundation](docs/wpf-ux-localization-notifications.md)
+- [POST-5E-7 source architecture](docs/post5e7-integrated-milestone.md)
+- [Real-device end-to-end plan](docs/real-device-e2e-plan.md)
 
-A projekt jelenleg fejlesztés alatt áll, nem tekinthető kész terméknek.
-
-Egyes funkciók hiányosak lehetnek vagy változhatnak.
+Earlier design/source-gate notes retain their historical context. The [v0.3.0 checkpoint record](docs/checkpoint-v0.3.0.md) describes the current accepted scope.

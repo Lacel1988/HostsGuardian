@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using HostsGuardian.Core.Models;
 
 namespace HostsGuardian.DnsEngine;
@@ -32,12 +33,12 @@ public sealed class PolicyApplicationService
             {
                 _rules.SetBlockedDomains(loaded.Policy.Domains);
                 State.Publish(new PolicyStateSnapshot(loaded.State, true, loaded.Policy.Revision,
-                    loaded.Policy.Domains.Length, false, "", ""));
+                    loaded.Policy.Domains.Length, false, "", "") { Policy = loaded.Policy.Policy ?? FullDnsPolicy.Empty with { GlobalBlockedDomains = loaded.Policy.Domains.ToImmutableArray() } });
             }
             else
             {
                 _rules.SetBlockedDomains(Array.Empty<string>());
-                State.Publish(new PolicyStateSnapshot(loaded.State, false, null, 0, true, "UntrustedPolicy", loaded.Fault));
+                State.Publish(new PolicyStateSnapshot(loaded.State, false, null, 0, true, "UntrustedPolicy", loaded.Fault) { Policy = FullDnsPolicy.Empty });
                 EngineLog.Failure("Policy", "Restore failed; Safe Mode bypass is active");
             }
             _initialized = true;
@@ -97,12 +98,43 @@ public sealed class PolicyApplicationService
         }
     }
 
-    private PolicyApplicationResult Commit(string[] candidate, bool removed)
+    public FullPolicyRead ReadFullPolicy()
+    {
+        lock (_mutationGate)
+        {
+            InitializeForStartup();
+            var current = State.GetSnapshot();
+            return new(current.Revision, current.Policy ?? FullDnsPolicy.Empty, _rules.InstanceId);
+        }
+    }
+
+    public PolicyApplicationResult ReplaceFull(FullPolicyReplace request)
+    {
+        var candidate = FullPolicyValidation.Canonicalize(request.Policy); // validate before any mutation
+        lock (_mutationGate)
+        {
+            InitializeForStartup();
+            if (request.ExpectedInstanceId != null && request.ExpectedInstanceId != _rules.InstanceId)
+                return Failure("InstanceConflict", "Engine instance changed; read and review before retrying");
+            if (State.GetSnapshot().Revision != request.ExpectedRevision)
+                return Failure("RevisionConflict", "Policy changed; read and review before retrying");
+            return Commit(candidate, false);
+        }
+    }
+
+    private PolicyApplicationResult Commit(string[] domains, bool removed)
+    {
+        // Legacy global edits preserve the entire registry and all richer overrides.
+        var full = State.GetSnapshot().Policy ?? FullDnsPolicy.Empty;
+        return Commit(full with { GlobalBlockedDomains = domains.ToImmutableArray() }, removed);
+    }
+
+    private PolicyApplicationResult Commit(FullDnsPolicy candidate, bool removed)
     {
         var current = State.GetSnapshot();
         if (current.Revision == long.MaxValue) return Failure("RevisionExhausted", "Policy revision limit reached");
         var revision = (current.Revision ?? 0) + 1;
-        try { _persistence.Commit(new CommittedPolicy(revision, candidate), preserveUntrustedFile: !current.Loaded); }
+        try { _persistence.Commit(new CommittedPolicy(revision, candidate.GlobalBlockedDomains.ToArray()) { Policy = candidate }, preserveUntrustedFile: !current.Loaded); }
         catch (ArgumentException) { return Failure("InvalidPolicy", "Policy exceeds storage constraints"); }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or System.Security.SecurityException)
         {
@@ -110,13 +142,13 @@ public sealed class PolicyApplicationService
             EngineLog.Failure("Policy", "Commit failed; previous policy retained");
             return Failure("PersistenceFailure", "Policy could not be committed");
         }
-        _rules.SetBlockedDomains(candidate);
+        _rules.SetBlockedDomains(candidate.GlobalBlockedDomains);
         State.Publish(current with
         {
-            Loaded = true, Revision = revision, RuleCount = candidate.Length, PersistenceFault = "",
+            Loaded = true, Revision = revision, RuleCount = candidate.GlobalBlockedDomains.Length, PersistenceFault = "", Policy = candidate,
             SafeModeReason = current.SafeMode ? "ManagementRequested" : ""
         });
-        return new PolicyApplicationResult(true, revision, candidate.Length, removed);
+        return new PolicyApplicationResult(true, revision, candidate.GlobalBlockedDomains.Length, removed);
     }
 
     private PolicyApplicationResult Failure(string category, string message)

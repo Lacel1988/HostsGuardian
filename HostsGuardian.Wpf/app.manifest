@@ -5,8 +5,8 @@
 	<trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
 		<security>
 			<requestedPrivileges>
-				<!-- Require admin so Apply/Revert can write hosts -->
-				<requestedExecutionLevel level="requireAdministrator" uiAccess="false" />
+				<!-- Control center runs with the caller token; privileged local actions remain explicit. -->
+				<requestedExecutionLevel level="asInvoker" uiAccess="false" />
 			</requestedPrivileges>
 		</security>
 	</trustInfo>

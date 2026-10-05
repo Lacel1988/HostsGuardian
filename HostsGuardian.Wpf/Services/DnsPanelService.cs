@@ -1,4 +1,5 @@
-﻿using System;
+using L = HostsGuardian.Wpf.Localization.LocalizationService;
+using System;
 using System.Diagnostics;
 using System.Text;
 
@@ -27,16 +28,16 @@ namespace HostsGuardian.Wpf.Services
                 p?.WaitForExit(4000);
 
                 var sb = new StringBuilder();
-                sb.AppendLine("DNS status (info-only)");
+                sb.AppendLine(L.T("DNS status (info-only)"));
                 sb.AppendLine("----------------------");
                 if (!string.IsNullOrWhiteSpace(output)) sb.AppendLine(output.Trim());
-                if (!string.IsNullOrWhiteSpace(err)) sb.AppendLine("WARN: " + err.Trim());
+                if (!string.IsNullOrWhiteSpace(err)) sb.AppendLine(L.T("WARN: ") + err.Trim());
 
                 return sb.ToString().Trim();
             }
             catch (Exception ex)
             {
-                return "DNS status: error: " + ex.Message;
+                return L.T("DNS status: error: ") + ex.Message;
             }
         }
     }

@@ -16,6 +16,7 @@ public sealed record UpstreamResult(
 /// <summary>Bounded UDP attempts, optional configured fallback, and response correlation.</summary>
 public sealed class UpstreamDnsForwarder
 {
+    private readonly DnsTelemetry? _telemetry;
     private readonly IPEndPoint _primary;
     private readonly IPEndPoint? _fallback;
     private readonly int _timeoutMs;
@@ -28,8 +29,9 @@ public sealed class UpstreamDnsForwarder
         : this(settings, state, null) { }
 
     internal UpstreamDnsForwarder(EngineSettings settings, UpstreamRuntimeState? state,
-        Func<byte[], IPEndPoint, CancellationToken, Task<UpstreamResult>>? attempt)
+        Func<byte[], IPEndPoint, CancellationToken, Task<UpstreamResult>>? attempt, DnsTelemetry? telemetry = null)
     {
+        _telemetry = telemetry;
         _primary = new IPEndPoint(settings.UpstreamAddress, settings.UpstreamPort);
         _fallback = settings.FallbackEndpoint == null ? null
             : new IPEndPoint(settings.FallbackEndpoint.Address, settings.FallbackEndpoint.Port);
@@ -54,7 +56,9 @@ public sealed class UpstreamDnsForwarder
                 usedFallback = endpoint != _primary;
                 if (usedFallback) _log.Warning("Upstream", "Configured fallback activated");
                 attempts++;
+                var started = System.Diagnostics.Stopwatch.GetTimestamp();
                 last = await _attempt(request, endpoint, cancellationToken).ConfigureAwait(false);
+                _telemetry?.Attempt(usedFallback ? 1 : 0, last.Outcome, System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds, attempts > 1, usedFallback);
                 if (last.Outcome == UpstreamOutcome.Cancelled)
                     return last with { Attempts = attempts, UsedFallback = usedFallback };
                 if (last.Outcome is UpstreamOutcome.Response or UpstreamOutcome.Truncated)

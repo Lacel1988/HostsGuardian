@@ -22,6 +22,8 @@ public sealed class DnsServiceStatus
     public long? PolicyRevision { get; set; }
     public int CommittedRuleCount { get; set; }
     public int ActiveRuleCount { get; set; }
+    public int CommittedDeviceOverrideCount { get; set; }
+    public int ActiveDeviceOverrideCount { get; set; }
     public bool FilteringEnabled { get; set; }
     public bool EmergencySafeMode { get; set; }
     public string SafeModeReason { get; set; } = "";

@@ -9,6 +9,7 @@ public sealed class EngineStatusPresentation
     private readonly Func<DateTimeOffset> _clock;
     private ConnectionResult? _lastResult;
     private DateTimeOffset? _confirmedUtc;
+    private DateTimeOffset? _resultUtc;
     private long? _synchronizedRevision;
     private string? _synchronizedInstance;
     public DnsServiceStatus? LastConfirmed { get; private set; }
@@ -25,6 +26,34 @@ public sealed class EngineStatusPresentation
             return current.FilteringEnabled ? "Enabled" : current.EmergencySafeMode ? "Safe Mode bypass" : "Disabled";
         }
     }
+    private bool _selectionChanged;
+    public string EngineHost => Current != null || (!Pending && _resultUtc != null && _clock() - _resultUtc <= MaximumStatusAge && _lastResult?.State == ConnectionState.AuthenticationFailed) ? "ONLINE" : "UNKNOWN";
+    public string Management => Current != null ? "AUTHENTICATED" : Pending || _resultUtc == null || _clock() - _resultUtc > MaximumStatusAge ? "UNKNOWN" : _lastResult?.State switch
+    {
+        ConnectionState.AuthenticationFailed => "AUTH ERROR",
+        ConnectionState.Unreachable or ConnectionState.Timeout => "UNREACHABLE",
+        _ => "UNKNOWN"
+    };
+    public string DnsService => Current is { } status ?
+        status.UdpListening && status.TcpListening ? "RUNNING" :
+        status.UdpListening || status.TcpListening ? "DEGRADED" : "DOWN" : "UNKNOWN";
+    public string PolicyStatus => Pending ? "PENDING" : _selectionChanged ? "CHANGES NOT SENT" :
+        _lastResult is { Ok: false } ? "FAILED" : Synchronization == "Confirmed" ? "SYNCHRONIZED" : "UNKNOWN";
+    public string Upstream
+    {
+        get
+        {
+            var current = Current;
+            if (current == null || current.LastUpstreamOutcome == "NotObserved") return "UNKNOWN";
+            var latest = current.LastUpstreamSuccessUtc > current.LastUpstreamFailureUtc || current.LastUpstreamFailureUtc == null
+                ? current.LastUpstreamSuccessUtc : current.LastUpstreamFailureUtc;
+            if (latest == null || _clock() - latest > MaximumStatusAge) return "UNKNOWN";
+            return current.LastUpstreamOutcome == "Response" ? current.LastUpstreamRequestUsedFallback ? "DEGRADED" : "HEALTHY" : "FAILED";
+        }
+    }
+    public string OperationalSummary => $"Engine host: {EngineHost}\nManagement: {Management}\nDNS service: {DnsService}\n" +
+        $"Filtering: {Filtering.ToUpperInvariant()}\nPolicy: {PolicyStatus}\nUpstream: {Upstream}";
+
     public string SafeMode
     {
         get
@@ -55,7 +84,9 @@ public sealed class EngineStatusPresentation
             return "Current status details: Unknown / unconfirmed" +
                 (_confirmedUtc.HasValue ? $"\nLast confirmation: {_confirmedUtc:O} (historical only)" : "");
         static string Time(DateTimeOffset? value) => value?.ToUniversalTime().ToString("O") ?? "Not observed";
-        return $"Safe Mode reason: {(status.SafeModeReason == "" ? "None reported" : status.SafeModeReason)}\n" +
+        return $"Revision: {status.PolicyRevision}; instance: {status.InstanceId}; snapshot: {status.SnapshotUtc:O}\n" +
+            $"Committed/active global rules: {status.CommittedRuleCount}/{status.ActiveRuleCount}; device overrides: {status.CommittedDeviceOverrideCount}/{status.ActiveDeviceOverrideCount}\n" +
+            $"Safe Mode reason: {(status.SafeModeReason == "" ? "None reported" : status.SafeModeReason)}\n" +
             $"Policy restore: {status.PolicyRestoreState}; loaded: {status.PolicyLoaded}\n" +
             $"Persistence fault: {(status.PersistenceFault == "" ? "None reported" : status.PersistenceFault)}\n" +
             $"Upstream latest outcome: {status.LastUpstreamOutcome} (passive; not an active health check)\n" +
@@ -84,6 +115,7 @@ public sealed class EngineStatusPresentation
     public void Complete(ConnectionResult result, long? synchronizedRevision = null)
     {
         Pending = false;
+        _resultUtc = _clock();
         _lastResult = result.Ok && result.Transport == null ? new(ConnectionState.Incompatible, "Missing status response") : result;
         if (result.Ok && result.Transport != null)
         {
@@ -91,16 +123,19 @@ public sealed class EngineStatusPresentation
             _confirmedUtc = _clock();
             if (synchronizedRevision != null)
             {
+                _selectionChanged = false;
                 _synchronizedRevision = synchronizedRevision;
                 _synchronizedInstance = result.Transport.InstanceId;
             }
         }
     }
-    public void InvalidateSelection() => _synchronizedRevision = null;
+    public void InvalidateSelection() { _synchronizedRevision = null; _selectionChanged = true; }
     public void Reset()
     {
         Pending = false;
+        _selectionChanged = false;
         _lastResult = null;
+        _resultUtc = null;
         _synchronizedRevision = null;
         LastConfirmed = null;
         _confirmedUtc = null;

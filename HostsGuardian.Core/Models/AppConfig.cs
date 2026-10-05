@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using HostsGuardian.Core.Models;
 
@@ -12,6 +12,9 @@ namespace HostsGuardian.Core.Models
 
         // per-device blokkolási policy (router/DNS irányhoz)
         public List<DevicePolicy> DevicePolicies { get; set; } = new();
+
+        // DevicePolicies remain unassigned legacy review information; never convert IsBlocked.
+        public FullDnsPolicy DeviceDomainPolicy { get; set; } = FullDnsPolicy.Empty;
 
         public DnsEngineConfig DnsEngine { get; set; } = new();
 

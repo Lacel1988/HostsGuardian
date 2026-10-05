@@ -1,4 +1,5 @@
-﻿using System;
+using L = HostsGuardian.Wpf.Localization.LocalizationService;
+using System;
 using HostsGuardian.Core.Models;
 using HostsGuardian.Wpf.Infrastructure;
 
@@ -71,12 +72,13 @@ public sealed class DeviceVm : ObservableObject
         }
     }
 
-    private bool _dnsBlocked;
-    public bool DnsBlocked
-    {
-        get => _dnsBlocked;
-        set => Set(ref _dnsBlocked, value);
-    }
+    public Guid? DeviceId { get; set; }
+    public DateTimeOffset? ObservedAtUtc { get; set; }
+    public string ObservationState => ObservedAtUtc is { } observed && DateTimeOffset.UtcNow - observed <= TimeSpan.FromMinutes(5)
+        ? L.T("Recently observed (scan)") : L.T("Unknown / observation stale");
+    public string IdentitySummary => L.F("IP: {0}; MAC: {1}; DeviceId: {2}; {3}", Ip, (Mac == "" ? L.T("unknown") : Mac), DeviceId?.ToString() ?? L.T("unassigned"), ObservationState);
+    private string _legacyPreference = "";
+    public string LegacyPreference { get => L.T(_legacyPreference); set => _legacyPreference = value; }
 
     // ==== Presentation ====
     private DeviceKind _kind = DeviceKind.Unknown;
@@ -124,10 +126,12 @@ public sealed class DeviceVm : ObservableObject
         _dev = dev ?? throw new ArgumentNullException(nameof(dev));
 
         _name = policyName ?? "";
-        _dnsBlocked = isBlocked;
+        LegacyPreference = isBlocked ? L.T("Legacy block preference: unassigned; review required") : "";
 
         RecalcKindAndPresentation();
     }
+
+    public void Relocalize() { OnPropertyChanged(nameof(ObservationState)); OnPropertyChanged(nameof(IdentitySummary)); OnPropertyChanged(nameof(LegacyPreference)); }
 
     // ---- Heuristics ----
     private void RecalcKindAndPresentation()

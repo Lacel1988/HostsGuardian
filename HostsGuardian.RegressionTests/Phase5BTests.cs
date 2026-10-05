@@ -154,6 +154,54 @@ internal static class Phase5BTests
 
     public static async Task Run(Action<string, Action> test, Func<string, Func<Task>, Task> asyncTest, string directory)
     {
+        await asyncTest("Integrated real UDP and TCP source bindings apply device overrides and Safe Mode", async () =>
+        {
+            await using var fixture = new Fixture(directory);
+            var id = Guid.NewGuid();
+            var policy = new FullDnsPolicy(2, ["explicit.invalid"], [new(id, "Loopback fixture", null, "fixture", "explicit")],
+                [new(id, "explicit.invalid", DeviceDomainRuleState.Allow), new(id, "allowed.invalid", DeviceDomainRuleState.Block)]);
+            Check(fixture.Policy.ReplaceFull(new(fixture.Policy.ReadFullPolicy().Revision, policy)).Success, "Device policy commit failed");
+            var now = DateTimeOffset.UtcNow;
+            fixture.Udp.RequestProcessor.Bindings.Replace(new(0, [new("127.0.0.1", null, id, "fixture", now.AddSeconds(-1), now.AddMinutes(1), true)]));
+            await fixture.StartAsync(); using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            foreach (var tcp in new[] { false, true })
+            {
+                Check((await Exchange(fixture, Query("explicit.invalid"), tcp, true, deadline.Token))[^4..].SequenceEqual(new byte[] {192,0,2,42}), "Source device Allow was ignored");
+                Check((await Exchange(fixture, Query("allowed.invalid"), tcp, false, deadline.Token))[^4..].SequenceEqual(new byte[4]), "Source device Block was ignored");
+                var observed = fixture.Udp.RequestProcessor.Observations.Read().Last();
+                Check(observed.DeviceId == id && observed.Request.Transport == (tcp ? DnsTransport.Tcp : DnsTransport.Udp), "Actual source decision evidence missing");
+            }
+            var bytes = File.ReadAllBytes(fixture.PolicyPath); var revision = fixture.Policy.ReadFullPolicy().Revision;
+            fixture.Policy.SetSafeMode(true);
+            foreach (var tcp in new[] { false, true })
+                Check((await Exchange(fixture, Query("allowed.invalid"), tcp, true, deadline.Token))[^4..].SequenceEqual(new byte[] {192,0,2,42}), "Safe Mode failed with device override");
+            Check(File.ReadAllBytes(fixture.PolicyPath).SequenceEqual(bytes) && fixture.Policy.ReadFullPolicy().Revision == revision, "Bypass changed full policy");
+        });
+        await asyncTest("POST5E7 UDP and every TCP frame carry source context into the shared processor", async () =>
+        {
+            await using var fixture = new Fixture(directory);
+            var observed = new System.Collections.Concurrent.ConcurrentQueue<DnsRequestContext>();
+            fixture.Udp.RequestProcessor.ContextObserved = observed.Enqueue;
+            await fixture.Udp.StartAsync(); await fixture.Tcp.StartAsync();
+            using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            var before = DateTimeOffset.UtcNow;
+            using var udp = new UdpClient(new IPEndPoint(IPAddress.Loopback, 0));
+            var udpPeer = (IPEndPoint)udp.Client.LocalEndPoint!;
+            await udp.SendAsync(Query("explicit.invalid"), new IPEndPoint(IPAddress.Loopback, fixture.Settings.DnsPort), deadline.Token);
+            await udp.ReceiveAsync(deadline.Token);
+            using var tcp = new TcpClient(); await tcp.ConnectAsync(IPAddress.Loopback, fixture.Settings.DnsPort, deadline.Token);
+            var tcpPeer = (IPEndPoint)tcp.Client.LocalEndPoint!;
+            for (var i = 0; i < 2; i++)
+            {
+                await tcp.GetStream().WriteAsync(Frame(Query("explicit.invalid")), deadline.Token);
+                await ReadResponse(tcp.GetStream(), deadline.Token);
+            }
+            var contexts = observed.ToArray();
+            Check(contexts.Length == 3 && contexts[0].Transport == DnsTransport.Udp && contexts.Skip(1).All(c => c.Transport == DnsTransport.Tcp), "Transport missing");
+            Check(contexts[0].SourcePort == udpPeer.Port && contexts.Skip(1).All(c => c.SourcePort == tcpPeer.Port), "Endpoint port missing");
+            Check(contexts.All(c => c.SourceAddress == "127.0.0.1" && c.ReceivedAtUtc >= before && c.ReceivedAtUtc <= DateTimeOffset.UtcNow), "Source/timestamp missing");
+        });
+
         await asyncTest("Phase5B framing reads fragmented prefix and payload exactly without leaking prefix", async () =>
         {
             var query = Query("explicit.invalid");
@@ -217,7 +265,7 @@ internal static class Phase5BTests
         {
             await using var fixture = new Fixture(directory); await fixture.StartAsync();
             using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-            foreach (var sample in new[] { ("explicit.invalid", (ushort)1, false), ("explicit.invalid", (ushort)28, false),
+            foreach (var sample in new[] { ("explicit.invalid", (ushort)1, false), ("explicit.invalid", (ushort)28, false), ("explicit.invalid", (ushort)15, false), ("explicit.invalid", (ushort)16, false), ("explicit.invalid", (ushort)65, false),
                 ("child.explicit.invalid", (ushort)1, false), ("child.explicit.invalid", (ushort)28, false),
                 ("allowed.invalid", (ushort)1, true), ("otherexplicit.invalid", (ushort)1, true) })
             {

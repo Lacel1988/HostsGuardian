@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
 	<PropertyGroup>
 		<OutputType>WinExe</OutputType>
@@ -7,7 +7,7 @@
 		<ImplicitUsings>enable</ImplicitUsings>
 		<UseWPF>true</UseWPF>
 
-		<!-- UAC: require admin -->
+		<!-- Normal control-center execution does not request elevation. -->
 		<ApplicationManifest>app.manifest</ApplicationManifest>
 	</PropertyGroup>
 
@@ -131,4 +131,5 @@
 		<Resource Include="Assets\Fonts\Orbitron-VariableFont_wght.ttf" />
 	</ItemGroup>
 
+  <ItemGroup><EmbeddedResource Include="Localization\en.json" /><EmbeddedResource Include="Localization\hu.json" /></ItemGroup>
 </Project>

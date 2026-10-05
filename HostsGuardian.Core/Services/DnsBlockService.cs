@@ -1,4 +1,4 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using HostsGuardian.Core.Models;
@@ -41,7 +41,7 @@ namespace HostsGuardian.Core.Services
         {
             return domains
                 .Where(d => d.DnsBlocked)
-                .Select(d => HostsService.NormalizeDomain(d.Domain))
+                .Select(d => DomainName.Normalize(d.Domain))
                 .Where(d => !string.IsNullOrWhiteSpace(d))
                 .Distinct()
                 .OrderBy(d => d)

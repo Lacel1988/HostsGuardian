@@ -15,6 +15,8 @@ public sealed class ApiServer : IAsyncDisposable
 {
     private const int MaximumRequestBodyBytes = 65536;
     private readonly PolicyApplicationService _policy;
+    private readonly AddressBindingStore _bindings;
+    private readonly DnsObservationStore _observations;
     private readonly IEngineRuntimeStatus _runtimeStatus;
     private readonly EngineSettings _settings;
     private readonly EngineConfig? _legacyConfig;
@@ -31,13 +33,15 @@ public sealed class ApiServer : IAsyncDisposable
 
     // Compatibility for existing callers: security input may be corrected before a startup retry.
     public ApiServer(RuleStore rules, EngineConfig config, DnsProxyServer dns)
-        : this(new PolicyApplicationService(rules, new PolicyPersistence(config.PolicyFilePath), dns.PolicyState), EngineSettings.FromConfig(config), dns.RuntimeStatus)
+        : this(new PolicyApplicationService(rules, new PolicyPersistence(config.PolicyFilePath), dns.PolicyState), EngineSettings.FromConfig(config), dns.RuntimeStatus, dns.RequestProcessor.Bindings, dns.RequestProcessor.Observations)
     {
         _legacyConfig = config;
     }
 
-    public ApiServer(PolicyApplicationService policy, EngineSettings settings, IEngineRuntimeStatus runtimeStatus)
+    public ApiServer(PolicyApplicationService policy, EngineSettings settings, IEngineRuntimeStatus runtimeStatus, AddressBindingStore? bindings = null, DnsObservationStore? observations = null)
     {
+        _bindings = bindings ?? new AddressBindingStore();
+        _observations = observations ?? new DnsObservationStore();
         _policy = policy;
         _settings = settings;
         _runtimeStatus = runtimeStatus;
@@ -213,6 +217,24 @@ public sealed class ApiServer : IAsyncDisposable
     {
         var path = context.Request.Path.Value?.TrimEnd('/') ?? "";
         if (context.Request.Method == "GET" && await HandleReadAsync(context, path)) return;
+        if (context.Request.Method == "POST" && path == "/v2/policy/replace")
+        {
+            using var document = await ReadRequestDocumentAsync(context);
+            if (!document.RootElement.TryGetProperty("expectedRevision", out _)) throw new ArgumentException();
+            var request = document.RootElement.Deserialize<FullPolicyReplace>(PolicyPersistence.JsonOptions) ?? throw new ArgumentException();
+            if (string.IsNullOrWhiteSpace(request.ExpectedInstanceId)) throw new ArgumentException();
+            await WritePolicyResultAsync(context, _policy.ReplaceFull(request), false);
+            return;
+        }
+        if (context.Request.Method == "POST" && path == "/v2/bindings/replace")
+        {
+            using var document = await ReadRequestDocumentAsync(context);
+            if (!document.RootElement.TryGetProperty("expectedGeneration", out _)) throw new ArgumentException();
+            var request = document.RootElement.Deserialize<BindingReplace>(PolicyPersistence.JsonOptions) ?? throw new ArgumentException();
+            if (!_bindings.Replace(request)) { await WriteErrorAsync(context, 409, "Mapping generation conflict"); return; }
+            await context.Response.WriteAsJsonAsync(_bindings.Read());
+            return;
+        }
         if (context.Request.Method == "POST" && path is "/safe-mode/enter" or "/safe-mode/exit")
         {
             using var document = await ReadRequestDocumentAsync(context);
@@ -236,6 +258,37 @@ public sealed class ApiServer : IAsyncDisposable
             case "":
             case "/health":
                 await context.Response.WriteAsJsonAsync(new { ok = true, engine = "HostsGuardian.DnsEngine", apiVersion = 1 });
+                return true;
+            case "/v2/diagnostics":
+                if ((_runtimeStatus as EngineRuntimeStatus)?.Diagnostics is not { } diagnostics) { context.Response.StatusCode = 404; return true; }
+                await context.Response.WriteAsJsonAsync(diagnostics.Snapshot()); return true;
+            case "/v2/operational-events":
+                if ((_runtimeStatus as EngineRuntimeStatus)?.Diagnostics is not { } events) { context.Response.StatusCode = 404; return true; }
+                var cursor = context.Request.Query["after"].ToString();
+                if (cursor != "" && (!long.TryParse(cursor, out _) || long.Parse(cursor) < 0)) throw new ArgumentException();
+                await context.Response.WriteAsJsonAsync(events.Health.Read(cursor == "" ? 0 : long.Parse(cursor))); return true;
+            case "/v2/dns-observations":
+                await context.Response.WriteAsJsonAsync(new { capacity = 64, observations = _observations.Read() });
+                return true;
+            case "/v2/capabilities":
+                await context.Response.WriteAsJsonAsync(new { apiVersion = 2, policySchemaVersion = 2,
+                    ipv4DeviceEnforcement = true, ipv6DeviceEnforcement = false, scopedBindings = true,
+                    fullPolicyReadback = true, optimisticConcurrency = true });
+                return true;
+            case "/v2/policy":
+                await context.Response.WriteAsJsonAsync(_policy.ReadFullPolicy());
+                return true;
+            case "/v2/bindings":
+                await context.Response.WriteAsJsonAsync(_bindings.Read());
+                return true;
+            case "/v2/effective-policy":
+                var address = context.Request.Query["address"].ToString();
+                var domain = context.Request.Query["domain"].ToString();
+                if (!IPAddress.TryParse(address, out _) || DomainName.Normalize(domain) == "") throw new ArgumentException();
+                var scope = context.Request.Query["scope"].ToString();
+                var snapshot = _policy.State.GetSnapshot();
+                await context.Response.WriteAsJsonAsync(DevicePolicyEvaluator.Explain(snapshot, snapshot.Policy ?? FullDnsPolicy.Empty,
+                    _bindings.Read(), new(DnsTransport.Udp, address, 0, DateTimeOffset.UtcNow, scope == "" ? null : scope), domain, DateTimeOffset.UtcNow));
                 return true;
             case "/dns/status":
                 await context.Response.WriteAsJsonAsync(GetDnsStatus());
@@ -266,6 +319,7 @@ public sealed class ApiServer : IAsyncDisposable
         try
         {
             var root = document.RootElement;
+            PolicyPersistence.RejectDuplicateProperties(root);
             if (root.ValueKind != JsonValueKind.Object) throw new ArgumentException();
             var propertyNames = new HashSet<string>(StringComparer.Ordinal);
             foreach (var property in root.EnumerateObject())
@@ -319,7 +373,7 @@ public sealed class ApiServer : IAsyncDisposable
             context.Response.StatusCode = result.FailureCategory switch
             {
                 "InvalidPolicy" => 400,
-                "RestoreFault" or "NotLoaded" or "RevisionExhausted" => 409,
+                "RestoreFault" or "NotLoaded" or "RevisionExhausted" or "RevisionConflict" or "InstanceConflict" => 409,
                 _ => 503
             };
             return context.Response.WriteAsJsonAsync(new { ok = false, error = result.Message,

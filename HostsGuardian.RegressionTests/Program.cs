@@ -21,31 +21,30 @@ string Fixture(string name, string content)
 var config = new AppConfig { BlockedDomains = new()
 {
     new() { Domain = "neither.invalid" },
-    new() { Domain = "hosts.invalid", HostsBlocked = true },
+    new() { Domain = "hosts.invalid" },
     new() { Domain = "dns.invalid", DnsBlocked = true },
-    new() { Domain = "both.invalid", HostsBlocked = true, DnsBlocked = true }
+    new() { Domain = "both.invalid", DnsBlocked = true }
 } };
 
 try
 {
     Test("mechanism selection matrix", () =>
     {
-        Check(DomainPolicySelection.ForHosts(config.BlockedDomains).SequenceEqual(new[] { "both.invalid", "hosts.invalid" }), "Hosts leaked unselected domains");
         Check(DomainPolicySelection.ForDns(config.BlockedDomains).SequenceEqual(new[] { "both.invalid", "dns.invalid" }), "DNS leaked unselected domains");
     });
     Test("missing flags do not authorize legacy filtering", () =>
     {
         var entry = JsonSerializer.Deserialize<DomainEntry>("{\"Domain\":\"legacy.invalid\"}")!;
-        Check(!entry.HostsBlocked && !entry.DnsBlocked, "Implicit legacy authorization");
+        Check(!entry.DnsBlocked, "Implicit legacy authorization");
     });
     Test("selection notifications and JSON persistence", () =>
     {
         var entry = new DomainEntry { Domain = "selection.invalid" };
         var changes = new List<string?>();
         entry.PropertyChanged += (_, e) => changes.Add(e.PropertyName);
-        entry.HostsBlocked = true; entry.DnsBlocked = true;
+        entry.DnsBlocked = true;
         var restored = JsonSerializer.Deserialize<DomainEntry>(JsonSerializer.Serialize(entry))!;
-        Check(changes.SequenceEqual(new[] { "HostsBlocked", "DnsBlocked" }) && restored.HostsBlocked && restored.DnsBlocked, "Lost checkbox choices");
+        Check(changes.SequenceEqual(new[] { "DnsBlocked" }) && restored.DnsBlocked, "Lost checkbox choices");
     });
     Test("normalization preserves selected subdomain and supports IDN", () =>
     {
@@ -53,88 +52,45 @@ try
         Check(DomainName.Normalize("bücher.invalid.") == "xn--bcher-kva.invalid", "IDN normalization failed");
         Check(DomainName.Normalize("bad name.invalid") == "" && DomainName.Normalize("a.invalid\nb.invalid") == "", "Injection accepted");
     });
-    Test("hosts apply backs up bytes and emits selected IPv4/IPv6 only", () =>
+    Test("legacy HOSTS flags never authorize DNS and do not serialize", () =>
     {
-        var original = "# untouched\r\n127.0.0.1 localhost\r\n192.0.2.1 internal.invalid\r\n";
-        var path = Fixture("apply-hosts", original);
-        var service = new HostsService(path);
-        var result = service.Apply(config);
-        Check(result.ok, result.message);
-        var output = File.ReadAllText(path);
-        Check(output.StartsWith(original) && output.Contains("0.0.0.0 hosts.invalid") && output.Contains("::1 hosts.invalid"), "Preservation/address families failed");
-        Check(!output.Contains("dns.invalid") && !output.Contains("neither.invalid"), "Hosts leaked policy");
-        Check(File.ReadAllText(Directory.GetFiles(fixtureRoot, "apply-hosts.backup_*").Single()) == original, "Incorrect backup");
-        Check(service.IsBlockPresent(), "Block undetected");
-        Check(service.Revert().ok && File.ReadAllText(path) == original && !service.IsBlockPresent(), "Revert damaged unrelated bytes");
-        Check(Directory.GetFiles(fixtureRoot, "apply-hosts.backup_*").Length == 2, "Revert backup missing");
+        var entry = JsonSerializer.Deserialize<DomainEntry>("{\"Domain\":\"legacy.invalid\",\"HostsBlocked\":true}")!;
+        Check(!entry.DnsBlocked && !JsonSerializer.Serialize(entry).Contains("HostsBlocked"), "Legacy HOSTS authorization survived");
     });
-    Test("legacy/current duplicate blocks consolidate and revert", () =>
+    Test("legacy cleanup preserves unrelated bytes, BOM and backups", () =>
     {
-        var prefix = "127.0.0.1 localhost\n";
-        var suffix = "192.0.2.1 keep.invalid\n";
-        var path = Fixture("markers", prefix + "# HOSTSGUARDIAN BEGIN\n0.0.0.0 old.invalid\n# HOSTSGUARDIAN END\n" +
-            "# BEGIN HOSTSGUARDIAN\n0.0.0.0 second.invalid\n# END HOSTSGUARDIAN\n" + suffix);
-        var service = new HostsService(path);
-        Check(service.IsBlockPresent(), "Legacy not detected");
-        Check(service.ReadCurrentBlockedDomains().Count == 2, "Legacy rules unreadable");
-        Check(service.Apply(new[] { "new.invalid" }).ok, "Consolidation failed");
-        var output = File.ReadAllText(path);
-        Check(!output.Contains("old.invalid") && !output.Contains("second.invalid") && output.Split("# BEGIN HOSTSGUARDIAN").Length == 2, "Old block survived");
-        Check(service.Revert().ok && File.ReadAllText(path) == prefix + suffix, "Unrelated content damaged");
-    });
-    Test("malformed ownership markers refuse writes", () =>
-    {
-        var malformed = new[] { "# BEGIN HOSTSGUARDIAN\n", "# END HOSTSGUARDIAN\n", "# BEGIN HOSTSGUARDIAN\n# HOSTSGUARDIAN END\n", "# BEGIN HOSTSGUARDIAN\n# BEGIN HOSTSGUARDIAN\n# END HOSTSGUARDIAN\n" };
-        foreach (var content in malformed)
-        {
-            var path = Fixture(Guid.NewGuid().ToString("N"), content);
-            var service = new HostsService(path);
-            Check(!service.Apply(new[] { "new.invalid" }).ok && !service.Revert().ok, "Unsafe markers accepted");
-            Check(File.ReadAllText(path) == content && Directory.GetFiles(fixtureRoot, Path.GetFileName(path) + ".backup_*").Length == 0, "Unsafe write occurred");
-        }
-    });
-    Test("preview is full-file and non-destructive", () =>
-    {
-        var original = "127.0.0.1 localhost\n";
-        var path = Fixture("preview", original);
-        var output = new HostsService(path).PreviewResult(config);
-        Check(output.StartsWith(original) && output.Contains("::1 hosts.invalid") && !output.Contains("dns.invalid"), "Preview policy mismatch");
-        Check(File.ReadAllText(path) == original && Directory.GetFiles(fixtureRoot, "preview.backup_*").Length == 0, "Preview wrote files");
-    });
-    Test("empty selected hosts policy removes owned blocks only", () =>
-    {
-        var path = Fixture("empty", "127.0.0.1 localhost\n# HOSTSGUARDIAN BEGIN\n0.0.0.0 old.invalid\n# HOSTSGUARDIAN END\n");
-        var service = new HostsService(path);
-        Check(service.Apply(new AppConfig()).ok && File.ReadAllText(path) == "127.0.0.1 localhost\n" && !service.IsBlockPresent(), "Empty policy remained active");
-    });
-    Test("backup failure prevents hosts write", () =>
-    {
-        // Existing hosts name is valid, but its generated backup component exceeds NTFS's 255-character limit.
-        var path = Fixture(new string('b', 220), "127.0.0.1 localhost\n");
-        var original = File.ReadAllBytes(path);
-        var result = new HostsService(path).Apply(new[] { "new.invalid" });
-        Check(!result.ok && File.ReadAllBytes(path).SequenceEqual(original), "Write continued after failed backup");
-        var missing = new HostsService(Path.Combine(fixtureRoot, "missing-hosts"));
-        Check(!missing.Apply(new[] { "new.invalid" }).ok && !missing.Revert().ok, "Missing hosts falsely succeeded");
-    });
-    Test("hosts preserves BOM/encoding and unrelated non-ASCII entries", () =>
-    {
-        foreach (var encoding in new Encoding[] { new UTF8Encoding(true), Encoding.Unicode, Encoding.BigEndianUnicode, Encoding.UTF32 })
+        foreach (var encoding in new Encoding[] { new UTF8Encoding(false), new UTF8Encoding(true), Encoding.Unicode, Encoding.BigEndianUnicode, Encoding.UTF32 })
+        foreach (var markers in new[] { ("# BEGIN HOSTSGUARDIAN", "# END HOSTSGUARDIAN"), ("# HOSTSGUARDIAN BEGIN", "# HOSTSGUARDIAN END") })
         {
             var path = Path.Combine(fixtureRoot, Guid.NewGuid().ToString("N"));
-            File.WriteAllText(path, "# Árvíztűrő\r\n127.0.0.1 localhost\r\n", encoding);
+            const string unrelated = "# Árvíztűrő\r\n127.0.0.1 localhost\r\n";
+            File.WriteAllText(path, unrelated + markers.Item1 + "\r\n0.0.0.0 old.invalid\r\n" + markers.Item2 + "\r\n", encoding);
             var original = File.ReadAllBytes(path);
-            var service = new HostsService(path);
-            Check(service.Apply(new[] { "encoding.invalid" }).ok && service.Revert().ok, "Encoded hosts failed");
-            Check(File.ReadAllBytes(path).SequenceEqual(original), "Original encoding/content lost");
+            var cleanup = new LegacyHostsCleanup(path);
+            Check(cleanup.IsBlockPresent() && cleanup.Cleanup().ok, "Cleanup failed");
+            Check(File.ReadAllBytes(Directory.GetFiles(fixtureRoot, Path.GetFileName(path) + ".backup_*").Single()).SequenceEqual(original), "Backup bytes lost");
+            Check(File.ReadAllText(path) == unrelated && !cleanup.IsBlockPresent(), "Unrelated content lost");
+            var expected = encoding.GetPreamble().Concat(encoding.GetBytes(unrelated));
+            Check(File.ReadAllBytes(path).SequenceEqual(expected), "Encoding changed");
+            Check(cleanup.Cleanup().ok && Directory.GetFiles(fixtureRoot, Path.GetFileName(path) + ".backup_*").Length == 1, "Cleanup not idempotent");
         }
     });
-    Test("invalid selected input cannot clear existing hosts policy", () =>
+    Test("legacy cleanup preserves arbitrary BOM-less bytes and refuses malformed encoded content", () =>
     {
-        var path = Fixture("invalid", "# BEGIN HOSTSGUARDIAN\n0.0.0.0 existing.invalid\n# END HOSTSGUARDIAN\n");
-        var original = File.ReadAllText(path);
-        var invalid = new AppConfig { BlockedDomains = new() { new() { Domain = "bad\nvalue.invalid", HostsBlocked = true } } };
-        Check(!new HostsService(path).Apply(invalid).ok && File.ReadAllText(path) == original, "Invalid input changed policy");
+        var path = Path.Combine(fixtureRoot, "legacy-byte-hosts");
+        var prefix = new byte[] { 35, 32, 0x81, 0xFF, 0xC0, 10 };
+        File.WriteAllBytes(path, prefix.Concat(Encoding.ASCII.GetBytes("# BEGIN HOSTSGUARDIAN\n0.0.0.0 old.invalid\n# END HOSTSGUARDIAN\n")).ToArray());
+        Check(new LegacyHostsCleanup(path).Cleanup().ok && File.ReadAllBytes(path).SequenceEqual(prefix), "Unknown encoding bytes changed");
+        var bad = new byte[] { 0xEF, 0xBB, 0xBF, 0xFF }; File.WriteAllBytes(path, bad);
+        Check(!new LegacyHostsCleanup(path).Cleanup().ok && File.ReadAllBytes(path).SequenceEqual(bad), "Malformed Unicode rewritten");
+    });
+    Test("malformed ownership blocks refuse cleanup before backup", () =>
+    {
+        foreach (var content in new[] { "# BEGIN HOSTSGUARDIAN\n", "# END HOSTSGUARDIAN\n", "# BEGIN HOSTSGUARDIAN\n# HOSTSGUARDIAN END\n", "# BEGIN HOSTSGUARDIAN\n# BEGIN HOSTSGUARDIAN\n# END HOSTSGUARDIAN\n" })
+        {
+            var path = Fixture(Guid.NewGuid().ToString("N"), content);
+            Check(!new LegacyHostsCleanup(path).Cleanup().ok && File.ReadAllText(path) == content && Directory.GetFiles(fixtureRoot, Path.GetFileName(path) + ".backup_*").Length == 0, "Malformed file changed");
+        }
     });
     Test("Engine starts empty and read operations do not create rules", () =>
     {
@@ -229,6 +185,16 @@ try
         foreach (var output in new[] { new DnsBlockService().BuildZeroIpList(config.BlockedDomains), new DnsBlockService().BuildAdGuardList(config.BlockedDomains), new DnsBlocklistExportService().ExportDomainsPlain(config.BlockedDomains), new DnsBlocklistExportService().ExportHostsStyle(config.BlockedDomains) })
             Check(output.Contains("dns.invalid") && output.Contains("both.invalid") && !output.Contains("hosts.invalid") && !output.Contains("neither.invalid"), "Export leaked policy");
     });
+
+    await AsyncTest("DNS cache flush requires successful completed exit", async () =>
+    {
+        foreach (int? code in new int?[] { null, 1, -1, 0 })
+            Check((await new DnsCacheFlushService(_ => Task.FromResult(code)).FlushAsync()).Success == (code == 0), "Launch mistaken for success");
+        Check(!(await new DnsCacheFlushService(_ => throw new OperationCanceledException()).FlushAsync()).Success, "Timeout reported success");
+        Check(!(await new DnsCacheFlushService(_ => throw new System.ComponentModel.Win32Exception()).FlushAsync()).Success, "Start failure reported success");
+    });
+    IntegratedPolicyTests.Run(Test, fixtureRoot);
+    await FullPolicyClientTests.Run(AsyncTest);
     ArchitectureTests.Run(Test);
     await SecurityTests.Run(Test, AsyncTest, fixtureRoot);
     await PreparationTests.Run(Test, AsyncTest, fixtureRoot);
@@ -237,6 +203,7 @@ try
     await Phase5CTests.Run(Test, AsyncTest, fixtureRoot);
     await Phase5DTests.Run(Test, AsyncTest, fixtureRoot);
     await Phase5ES1Tests.Run(Test, AsyncTest, fixtureRoot);
+    await DiagnosticsTests.Run(Test, AsyncTest, fixtureRoot);
     Console.WriteLine($"{passed} regression groups passed. No system hosts, real DNS, or deployment service was changed.");
 }
 finally { Console.WriteLine("Isolated fixture directory: " + fixtureRoot); }

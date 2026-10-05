@@ -1,0 +1,21 @@
+hostsguardian-monitor (0.3.0+unified1) unstable; urgency=medium
+
+  * Unified Overview, Diagnostics, Events / Incidents and technical Details.
+  * Preserve fixed-unit authorization and independent Engine lifetime.
+  * Keep the existing launcher/autostart paths; update the application name.
+
+ -- HostsGuardian maintainers <maintainers@hostsguardian.invalid>  Mon, 05 Oct 2026 18:00:00 +0200
+
+hostsguardian-monitor (0.2.0+diagnostics1) unstable; urgency=medium
+
+  * Engine Diagnostics Console V1: bounded live graphs, DNS results, health and details.
+  * GTK native graph rendering; no Cairo binding dependency.
+
+ -- HostsGuardian maintainers <maintainers@hostsguardian.invalid>  Mon, 05 Oct 2026 17:00:00 +0200
+
+hostsguardian-monitor (0.1.0) unstable; urgency=medium
+
+  * Prepare local status monitoring, fixed-unit recovery and graphical-login autostart.
+  * Source checkpoint only; Vivo runtime and package validation are required.
+
+ -- HostsGuardian maintainers <maintainers@example.invalid>  Sun, 04 Oct 2026 12:00:00 +0200

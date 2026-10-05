@@ -18,6 +18,7 @@ public sealed class EngineLifetime
     {
         var exitCode = 0;
         using var lifetimeWait = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var diagnostics = _dns.RuntimeStatus.Diagnostics?.RunAsync(lifetimeWait.Token) ?? Task.CompletedTask;
         try
         {
             _dns.RuntimeStatus.SetRuntimeState("Starting");
@@ -39,10 +40,12 @@ public sealed class EngineLifetime
             EngineLog.Failure("Engine", "Startup or lifetime failed");
             exitCode = 1;
             _dns.RuntimeStatus.SetRuntimeState("Faulted");
+            _dns.RuntimeStatus.Diagnostics?.EvaluateOnce();
         }
         finally
         {
             lifetimeWait.Cancel();
+            await diagnostics;
             if (exitCode == 0) _dns.RuntimeStatus.SetRuntimeState("Stopping");
             try { await _tcp.StopAsync(); }
             catch (Exception) { EngineLog.Failure("Engine", "TCP DNS shutdown failed"); exitCode = 1; }

@@ -13,10 +13,15 @@ public sealed class ConfigService
             if (!File.Exists(_path)) return new AppConfig();
             var text = File.ReadAllText(_path);
             var cfg = JsonSerializer.Deserialize<AppConfig>(text, Options) ?? new AppConfig();
+            cfg.BlockedDomains ??= new();
+            cfg.DevicePolicies ??= new();
+            cfg.DnsEngine ??= new();
+            cfg.DeviceDomainPolicy = PolicyCanonicalization.Canonicalize(cfg.DeviceDomainPolicy ?? FullDnsPolicy.Empty);
             cfg.DnsEngine.LegacyCredentialPresent = LegacyToken(text) != null;
             return cfg;
         }
-        catch { return new AppConfig(); }
+        catch (Exception exception) when (exception is JsonException or ArgumentException or IOException or UnauthorizedAccessException)
+        { throw new InvalidDataException("Configuration is unreadable or invalid; original file retained", exception); }
     }
     private static string? LegacyToken(string text)
     {

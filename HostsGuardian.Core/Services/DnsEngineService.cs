@@ -58,6 +58,35 @@ public sealed class DnsEngineService
         }
         catch { return (new(ConnectionState.NetworkFailure, "Connection failed"), ""); }
     }
+    public async Task<(ConnectionResult Connection, OperationalEventBatch? Batch)> ReadOperationalEventsAsync(DnsEngineConfig cfg, long after = 0, CancellationToken ct = default)
+    {
+        if (after < 0) throw new ArgumentOutOfRangeException(nameof(after));
+        var (result, body) = await Send(cfg, "v2/operational-events?after=" + after.ToString(System.Globalization.CultureInfo.InvariantCulture), null, ct);
+        if (!result.Ok) return (result, null);
+        try
+        {
+            var batch = JsonSerializer.Deserialize<OperationalEventBatch>(body, Options);
+            if (batch == null || batch.SchemaVersion != 1 || string.IsNullOrWhiteSpace(batch.InstanceId) || batch.InstanceId.Length > 100 ||
+                batch.LatestSequence < 0 || batch.Events == null || batch.Events.Length > 64 || batch.Components == null || batch.Components.Length != 6)
+                throw new JsonException();
+            var components = new HashSet<string> { "Listeners", "Management", "Upstream", "Processing", "Capacity", "Persistence" };
+            foreach (var c in batch.Components)
+                if (!components.Remove(c.Component) || c.State is not ("Healthy" or "Degraded" or "Critical") ||
+                    (c.State != "Healthy" && string.IsNullOrWhiteSpace(c.IncidentId)) || c.IncidentId?.Length > 160) throw new JsonException();
+            long sequence = 0;
+            foreach (var e in batch.Events)
+            {
+                if (e.Sequence <= sequence || e.Sequence > batch.LatestSequence || e.InstanceId != batch.InstanceId ||
+                    e.Severity is not ("Warning" or "Critical" or "Recovery") || e.State is not ("Healthy" or "Degraded" or "Critical") ||
+                    string.IsNullOrWhiteSpace(e.IncidentId) || e.IncidentId.Length > 160 || e.Type.Length > 80 || e.SummaryId.Length > 100)
+                    throw new JsonException();
+                sequence = e.Sequence;
+            }
+            return (result, batch);
+        }
+        catch { return (new(ConnectionState.Incompatible, "Invalid operational event contract"), null); }
+    }
+
     public async Task<ConnectionResult> TestConnectionAsync(DnsEngineConfig cfg, CancellationToken ct = default)
     {
         var (result, body) = await Send(cfg, "health", null, ct);
@@ -162,16 +191,99 @@ public sealed class DnsEngineService
 
     public async Task<PolicyUpdateConfirmation> ReplacePolicyAsync(DnsEngineConfig cfg, IEnumerable<string> domains, CancellationToken ct = default)
     {
-        var acknowledgement = await SendPolicyAsync(cfg, domains, ct);
-        if (!acknowledgement.Connection.Ok) return acknowledgement;
-        var confirmed = await TestConnectionAsync(cfg, ct);
-        if (!confirmed.Ok) return acknowledgement with { Connection = confirmed };
-        var status = confirmed.Transport;
-        if (status == null || status.PolicyRevision != acknowledgement.CommittedRevision ||
-            status.CommittedRuleCount != acknowledgement.Count)
-            return acknowledgement with { Connection = new(ConnectionState.EngineError,
-                "Policy committed; later status differs, synchronization unconfirmed") };
-        return acknowledgement with { Connection = confirmed };
+        var read = await ReadFullPolicyAsync(cfg, ct);
+        if (!read.Connection.Ok || read.Policy == null) return new(read.Connection, null, 0);
+        FullDnsPolicy outgoing;
+        try
+        {
+            outgoing = PolicyCanonicalization.Canonicalize(read.Policy.Policy with
+            { GlobalBlockedDomains = System.Collections.Immutable.ImmutableArray.CreateRange(domains) });
+        }
+        catch { return new(new(ConnectionState.InvalidSettings, "Invalid policy"), null, 0); }
+        var full = await ReplaceFullPolicyAsync(cfg, new(read.Policy.Revision, outgoing, read.Policy.InstanceId), ct);
+        return new(full.Connection, full.AcknowledgedRevision, outgoing.GlobalBlockedDomains.Length);
+    }
+
+    private static readonly JsonSerializerOptions FullOptions = new()
+    { PropertyNameCaseInsensitive = true, PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+      UnmappedMemberHandling = System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow };
+
+    public async Task<(ConnectionResult Connection, FullPolicyRead? Policy)> ReadFullPolicyAsync(DnsEngineConfig cfg, CancellationToken ct = default)
+    {
+        var (result, body) = await Send(cfg, "v2/policy", null, ct);
+        if (!result.Ok) return (result, null);
+        try
+        {
+            var read = JsonSerializer.Deserialize<FullPolicyRead>(body, FullOptions);
+            if (read == null || read.Policy.SchemaVersion != 2 || read.Policy.Devices.IsDefault || read.Policy.Overrides.IsDefault
+                || read.Policy.GlobalBlockedDomains.IsDefault || read.Revision < 0 || string.IsNullOrWhiteSpace(read.InstanceId)) throw new JsonException();
+            var canonical = PolicyCanonicalization.Canonicalize(read.Policy);
+            if (JsonSerializer.Serialize(canonical, FullOptions) != JsonSerializer.Serialize(read.Policy, FullOptions)) throw new JsonException();
+            return (result, read);
+        }
+        catch { return (new(ConnectionState.Incompatible, "Malformed full-policy response"), null); }
+    }
+
+    public async Task<FullPolicyConfirmation> ReplaceFullPolicyAsync(DnsEngineConfig cfg, FullPolicyReplace request, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(request.ExpectedInstanceId)) return new(new(ConnectionState.InvalidSettings, "Read Engine instance before replacing policy"), null, false);
+        var (capabilityResult, capabilities) = await Send(cfg, "v2/capabilities", null, ct);
+        if (!capabilityResult.Ok) return new(capabilityResult, null, false);
+        try
+        {
+            using var document = JsonDocument.Parse(capabilities);
+            if (document.RootElement.GetProperty("policySchemaVersion").GetInt32() != 2
+                || !document.RootElement.GetProperty("fullPolicyReadback").GetBoolean()
+                || !document.RootElement.GetProperty("optimisticConcurrency").GetBoolean()) throw new JsonException();
+        }
+        catch { return new(new(ConnectionState.Incompatible, "Full-policy capabilities required"), null, false); }
+        var (result, acknowledgement) = await Send(cfg, "v2/policy/replace", JsonSerializer.Serialize(request, FullOptions), ct);
+        if (!result.Ok) return new(result, null, false);
+        long revision;
+        try
+        {
+            using var document = JsonDocument.Parse(acknowledgement);
+            if (!document.RootElement.GetProperty("ok").GetBoolean()) throw new JsonException();
+            revision = document.RootElement.GetProperty("revision").GetInt64();
+            if (revision < 1) throw new JsonException();
+        }
+        catch { return new(new(ConnectionState.Incompatible, "Malformed policy acknowledgement"), null, false); }
+        var read = await ReadFullPolicyAsync(cfg, ct);
+        if (!read.Connection.Ok) return new(read.Connection, null, false, revision);
+        if (read.Policy?.Revision != revision || read.Policy.InstanceId != request.ExpectedInstanceId || JsonSerializer.Serialize(read.Policy.Policy, FullOptions) != JsonSerializer.Serialize(request.Policy, FullOptions))
+            return new(new(ConnectionState.EngineError, "Full policy differs; synchronization unconfirmed"), read.Policy, false, revision);
+        var status = await TestConnectionAsync(cfg, ct);
+        return new(status, read.Policy, true, revision);
+    }
+
+    public async Task<(ConnectionResult Connection, EffectivePolicyExplanation? Explanation)> ExplainPolicyAsync(
+        DnsEngineConfig cfg, string address, string domain, CancellationToken ct = default)
+    {
+        if (!System.Net.IPAddress.TryParse(address, out _) || DomainName.Normalize(domain) == "")
+            return (new(ConnectionState.InvalidSettings, "Select an observed address and domain"), null);
+        var (result, body) = await Send(cfg, "v2/effective-policy?address=" + Uri.EscapeDataString(address)
+            + "&domain=" + Uri.EscapeDataString(domain), null, ct);
+        if (!result.Ok) return (result, null);
+        try
+        {
+            var explanation = JsonSerializer.Deserialize<EffectivePolicyExplanation>(body, FullOptions);
+            if (explanation == null || explanation.Domain != DomainName.Normalize(domain)) throw new JsonException();
+            return (result, explanation);
+        }
+        catch { return (new(ConnectionState.Incompatible, "Malformed policy explanation"), null); }
+    }
+
+    public async Task<(ConnectionResult Connection, BindingRead? Bindings)> ReadBindingsAsync(DnsEngineConfig cfg, CancellationToken ct = default)
+    {
+        var (result, body) = await Send(cfg, "v2/bindings", null, ct);
+        if (!result.Ok) return (result, null);
+        try
+        {
+            var read = JsonSerializer.Deserialize<BindingRead>(body, FullOptions);
+            if (read == null || read.Generation < 0 || read.Observations.IsDefault) throw new JsonException();
+            return (result, read);
+        }
+        catch { return (new(ConnectionState.Incompatible, "Malformed binding response"), null); }
     }
 
     public async Task<(bool ok, string message)> TestAsync(DnsEngineConfig cfg, CancellationToken ct = default)

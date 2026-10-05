@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Net;
 using System.Text;
 
@@ -79,14 +79,14 @@ public static class DnsProtocol
         WriteU16(resp, 8, 0);
         WriteU16(resp, 10, 0);
 
-        if (q.QType == 1) // A
+        if (q.QType == 1 && q.QClass == 1) // IN A
         {
             // ANCOUNT = 1
             WriteU16(resp, 6, 1);
         }
         else
         {
-            // ANCOUNT = 0 (AAAA blocked by empty answer)
+            // Other blocked record types/classes return an empty answer.
             WriteU16(resp, 6, 0);
             // shrink to header+question only
             Array.Resize(ref resp, q.QuestionEndOffset);

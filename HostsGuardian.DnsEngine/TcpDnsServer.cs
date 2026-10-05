@@ -63,6 +63,7 @@ public sealed class TcpDnsServer : IAsyncDisposable
                     ReapCompletedConnections();
                     if (cancellationToken.IsCancellationRequested || _connections.Count >= MaximumConnections)
                     {
+                        if (!cancellationToken.IsCancellationRequested) _processor.Telemetry.RejectConnection();
                         client.Dispose();
                         if (!cancellationToken.IsCancellationRequested && Interlocked.Exchange(ref _limitReported, 1) == 0)
                             EngineLog.Warning("TCP DNS", "Connection limit reached; excess connections are closed");
@@ -100,6 +101,7 @@ public sealed class TcpDnsServer : IAsyncDisposable
     {
         using (client)
         {
+            _processor.Telemetry.Connection(true);
             try
             {
                 var stream = client.GetStream();
@@ -110,7 +112,7 @@ public sealed class TcpDnsServer : IAsyncDisposable
                     readDeadline.CancelAfter(TimeSpan.FromSeconds(30));
                     var request = await TcpDnsFraming.ReadAsync(stream, readDeadline.Token).ConfigureAwait(false);
                     if (request == null) break;
-                    var response = await _processor.ProcessAsync(request, cancellationToken).ConfigureAwait(false);
+                    var response = await _processor.ProcessAsync(request, DnsRequestContext.From(DnsTransport.Tcp, (System.Net.IPEndPoint)client.Client.RemoteEndPoint!, DateTimeOffset.UtcNow), cancellationToken).ConfigureAwait(false);
                     if (response == null) break; // No synthetic answer/retry is introduced in this phase.
                     using var writeDeadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
                     writeDeadline.CancelAfter(TimeSpan.FromSeconds(30));
@@ -126,7 +128,8 @@ public sealed class TcpDnsServer : IAsyncDisposable
             catch (Exception exception) when (exception is IOException or SocketException or ObjectDisposedException)
             { } // Peer reset/disconnect or cancellation-driven socket disposal is local to this connection.
             catch (Exception)
-            { EngineLog.Failure("TCP DNS", "Connection processing failed"); }
+            { _processor.Telemetry.TransportFailed(); EngineLog.Failure("TCP DNS", "Connection processing failed"); }
+            finally { _processor.Telemetry.Connection(false); }
         }
     }
 

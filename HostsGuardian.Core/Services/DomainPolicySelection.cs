@@ -1,12 +1,9 @@
-﻿using HostsGuardian.Core.Models;
+using HostsGuardian.Core.Models;
 
 namespace HostsGuardian.Core.Services;
 
 public static class DomainPolicySelection
 {
-    public static string[] ForHosts(IEnumerable<DomainEntry>? entries)
-        => Select(entries, entry => entry.HostsBlocked);
-
     public static string[] ForDns(IEnumerable<DomainEntry>? entries)
         => Select(entries, entry => entry.DnsBlocked);
 

@@ -10,6 +10,7 @@ public interface IEngineRuntimeStatus
 
 public sealed class EngineRuntimeStatus : IEngineRuntimeStatus
 {
+    public EngineDiagnostics? Diagnostics { get; internal set; }
     private readonly EngineSettings _settings;
     private readonly string _instanceId;
     // Lifecycle publication only; no DNS/upstream I/O occurs under this lock.
@@ -70,6 +71,8 @@ public sealed class EngineRuntimeStatus : IEngineRuntimeStatus
                 PolicyRevision = policy.Revision,
                 CommittedRuleCount = policy.RuleCount,
                 ActiveRuleCount = policy.ActiveRuleCount,
+                CommittedDeviceOverrideCount = policy.Policy?.Overrides.Count(o => o.State != DeviceDomainRuleState.Inherit) ?? 0,
+                ActiveDeviceOverrideCount = policy.FilteringEnabled ? policy.Policy?.Overrides.Count(o => o.State != DeviceDomainRuleState.Inherit) ?? 0 : 0,
                 FilteringEnabled = policy.FilteringEnabled,
                 EmergencySafeMode = policy.SafeMode,
                 SafeModeReason = policy.SafeModeReason,

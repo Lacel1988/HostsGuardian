@@ -124,7 +124,7 @@ internal static class PreparationTests
                 var expected = DnsProtocol.BuildBlockedResponse(request, question, settings.BlockedAddress);
                 Check((await processor.ProcessAsync(request, deadline.Token))!.SequenceEqual(expected), "Blocked response changed");
             }
-            foreach (var request in new[] { Query("allowed.invalid", 1), Query("explicit.invalid", 15) })
+            foreach (var request in new[] { Query("allowed.invalid", 1), Query("allowed.invalid", 15) })
             {
                 var processing = processor.ProcessAsync(request, deadline.Token);
                 var received = await upstream.ReceiveAsync(deadline.Token);

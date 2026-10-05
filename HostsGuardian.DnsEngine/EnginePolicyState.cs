@@ -3,6 +3,7 @@ namespace HostsGuardian.DnsEngine;
 public sealed record PolicyStateSnapshot(string RestoreState, bool Loaded, long? Revision, int RuleCount,
     bool SafeMode, string SafeModeReason, string PersistenceFault)
 {
+    public HostsGuardian.Core.Models.FullDnsPolicy? Policy { get; init; }
     public bool FilteringEnabled => Loaded && !SafeMode;
     public int ActiveRuleCount => FilteringEnabled ? RuleCount : 0;
 }

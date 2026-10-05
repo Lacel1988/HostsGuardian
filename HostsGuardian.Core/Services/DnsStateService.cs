@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net;
@@ -86,15 +86,15 @@ namespace HostsGuardian.Wpf.Services
             state.RiskLabel = hasPublic ? "RISKY" : "OK";
 
             state.Summary = hasPublic
-                ? "Public DNS detected. Hosts blocking can be bypassed easier."
-                : "DNS looks normal. Hosts blocking is more reliable (still not perfect).";
+                ? "Public DNS detected. Queries may bypass the configured Engine."
+                : "Interface DNS servers observed. Engine routing has not been verified.";
 
             state.Details =
                 "Detected DNS servers:\n" +
                 string.Join("\n", clean.Select(s => "  - " + s)) +
                 "\n\n" +
                 "Important:\n" +
-                "Browser DoH (DNS over HTTPS) may bypass OS DNS + hosts behavior.\n" +
+                "Browser DoH (DNS over HTTPS) may bypass the configured Engine.\n" +
                 "We cannot reliably detect browser DoH from here. This panel is info-only.";
 
             return state;

@@ -1,8 +1,8 @@
-﻿using System;
+using System;
 
 namespace HostsGuardian.Wpf.ViewModels
 {
-    public class ActivityItemVm
+    public class ActivityItemVm : HostsGuardian.Wpf.Infrastructure.ObservableObject
     {
         public ActivityItemVm() { } // fontos: legyen default ctor
 
@@ -16,6 +16,15 @@ namespace HostsGuardian.Wpf.ViewModels
         public DateTime AtUtc { get; set; } = DateTime.UtcNow;
         public string Level { get; set; } = "INFO";
         public string Message { get; set; } = "";
+
+        public ActivityEvent? Event => ActivityEvent.Parse(Message);
+        public string DisplayMessage => Event?.Display ?? Message;
+        public string DisplayLevel => Localization.LocalizationService.T(Level);
+        public void Relocalize()
+        {
+            OnPropertyChanged(nameof(DisplayMessage));
+            OnPropertyChanged(nameof(DisplayLevel));
+        }
 
         public string Header => $"{AtUtc:yyyy-MM-dd HH:mm:ss}  [{Level}]";
 
