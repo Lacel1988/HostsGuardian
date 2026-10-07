@@ -17,6 +17,7 @@ public sealed class ApiServer : IAsyncDisposable
     private readonly PolicyApplicationService _policy;
     private readonly AddressBindingStore _bindings;
     private readonly DnsObservationStore _observations;
+    private readonly ProductActivityStore _activity;
     private readonly IEngineRuntimeStatus _runtimeStatus;
     private readonly EngineSettings _settings;
     private readonly EngineConfig? _legacyConfig;
@@ -33,15 +34,16 @@ public sealed class ApiServer : IAsyncDisposable
 
     // Compatibility for existing callers: security input may be corrected before a startup retry.
     public ApiServer(RuleStore rules, EngineConfig config, DnsProxyServer dns)
-        : this(new PolicyApplicationService(rules, new PolicyPersistence(config.PolicyFilePath), dns.PolicyState), EngineSettings.FromConfig(config), dns.RuntimeStatus, dns.RequestProcessor.Bindings, dns.RequestProcessor.Observations)
+        : this(new PolicyApplicationService(rules, new PolicyPersistence(config.PolicyFilePath), dns.PolicyState), EngineSettings.FromConfig(config), dns.RuntimeStatus, dns.RequestProcessor.Bindings, dns.RequestProcessor.Observations, dns.RequestProcessor.Activity)
     {
         _legacyConfig = config;
     }
 
-    public ApiServer(PolicyApplicationService policy, EngineSettings settings, IEngineRuntimeStatus runtimeStatus, AddressBindingStore? bindings = null, DnsObservationStore? observations = null)
+    public ApiServer(PolicyApplicationService policy, EngineSettings settings, IEngineRuntimeStatus runtimeStatus, AddressBindingStore? bindings = null, DnsObservationStore? observations = null, ProductActivityStore? activity = null)
     {
         _bindings = bindings ?? new AddressBindingStore();
         _observations = observations ?? new DnsObservationStore();
+        _activity = activity ?? new ProductActivityStore();
         _policy = policy;
         _settings = settings;
         _runtimeStatus = runtimeStatus;
@@ -235,6 +237,17 @@ public sealed class ApiServer : IAsyncDisposable
             await context.Response.WriteAsJsonAsync(_bindings.Read());
             return;
         }
+        if (context.Request.Method == "POST" && path == "/v2/discovery/refresh")
+        {
+            using var document=await ReadRequestDocumentAsync(context);
+            if(document.RootElement.EnumerateObject().Any())throw new ArgumentException();
+            var networkRefresh=HostsGuardian.Core.Services.LanDiscoveryRefresh.RefreshAsync(context.RequestAborted);
+            await Task.WhenAll(networkRefresh,HostsGuardian.Core.Services.FingerprintDiscovery.RefreshAsync(context.RequestAborted));
+            var observations=await networkRefresh;
+            HostsGuardian.Core.Services.LanObservationStore.Shared.Observe(observations,DateTimeOffset.UtcNow);
+            await context.Response.WriteAsJsonAsync(observations);
+            return;
+        }
         if (context.Request.Method == "POST" && path is "/safe-mode/enter" or "/safe-mode/exit")
         {
             using var document = await ReadRequestDocumentAsync(context);
@@ -259,6 +272,14 @@ public sealed class ApiServer : IAsyncDisposable
             case "/health":
                 await context.Response.WriteAsJsonAsync(new { ok = true, engine = "HostsGuardian.DnsEngine", apiVersion = 1 });
                 return true;
+            case "/v2/identity-evidence":
+                await context.Response.WriteAsJsonAsync(HostsGuardian.Core.Services.PassiveIdentityEvidence.Read());
+                return true;
+            case "/v2/discovery":
+                var lan=(_runtimeStatus as EngineRuntimeStatus)?.Diagnostics?.Snapshot().Devices?.LanDevices ??
+                    HostsGuardian.Core.Services.LanObservationStore.Shared.Observe(HostsGuardian.Core.Services.PassiveIdentityEvidence.Read(),DateTimeOffset.UtcNow);
+                await context.Response.WriteAsJsonAsync(lan);
+                return true;
             case "/v2/diagnostics":
                 if ((_runtimeStatus as EngineRuntimeStatus)?.Diagnostics is not { } diagnostics) { context.Response.StatusCode = 404; return true; }
                 await context.Response.WriteAsJsonAsync(diagnostics.Snapshot()); return true;
@@ -267,11 +288,17 @@ public sealed class ApiServer : IAsyncDisposable
                 var cursor = context.Request.Query["after"].ToString();
                 if (cursor != "" && (!long.TryParse(cursor, out _) || long.Parse(cursor) < 0)) throw new ArgumentException();
                 await context.Response.WriteAsJsonAsync(events.Health.Read(cursor == "" ? 0 : long.Parse(cursor))); return true;
+            case "/v3/activity":
+                await context.Response.WriteAsJsonAsync(_activity.Read(DateTimeOffset.UtcNow)); return true;
+            case "/v3/policy-audit":
+                var audit = _policy.Audit.Read();
+                await context.Response.WriteAsJsonAsync(new { schemaVersion = 1, available = _policy.Audit.Available,
+                    maximumEntries = PolicyAuditStore.MaximumEntries, entries = audit.TakeLast(100).Reverse().ToArray() }); return true;
             case "/v2/dns-observations":
                 await context.Response.WriteAsJsonAsync(new { capacity = 64, observations = _observations.Read() });
                 return true;
             case "/v2/capabilities":
-                await context.Response.WriteAsJsonAsync(new { apiVersion = 2, policySchemaVersion = 2,
+                await context.Response.WriteAsJsonAsync(new { apiVersion = 2, policySchemaVersion = 2, supportedPolicySchemas = new[] { 2, 3 },
                     ipv4DeviceEnforcement = true, ipv6DeviceEnforcement = false, scopedBindings = true,
                     fullPolicyReadback = true, optimisticConcurrency = true });
                 return true;

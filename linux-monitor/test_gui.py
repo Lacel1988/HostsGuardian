@@ -15,6 +15,35 @@ except ImportError:
 
 @unittest.skipUnless(GTK_AVAILABLE, 'GTK graphical session required')
 class GuiTests(unittest.TestCase):
+    def test_topology_missing_cairo_bridge_keeps_list_and_details(self):
+        from unittest.mock import patch
+        from test_topology import fixture
+        from topology_ui import TopologyView
+        with patch('topology_ui.CAIRO_AVAILABLE',False):
+            from datetime import datetime,timezone
+            view=TopologyView();view.render(fixture());view.validator_health(dict(state='UNAVAILABLE',reason='Fixture only',checkedAtUtc=datetime.now(timezone.utc).isoformat()))
+            self.assertIsNotNone(view.list.get_first_child());self.assertIn('Unknown fixture',view.details.get_text())
+            self.assertIn('UNAVAILABLE',view.validator_note.get_text())
+            view.validator_health(dict(state='READY',reason='Old evidence',checkedAtUtc='2000-01-01T00:00:00Z'))
+            self.assertIn('UNKNOWN',view.validator_note.get_text())
+
+    def test_realized_topology_native_cairo_draw_callback(self):
+        import time
+        from unittest.mock import patch
+        from test_topology import fixture
+        from topology_ui import TopologyView,CAIRO_AVAILABLE
+        if not CAIRO_AVAILABLE:self.skipTest('Explicit python3-gi-cairo bridge prerequisite absent')
+        calls=[];original=TopologyView.draw
+        def draw(view,*args):
+            original(view,*args);calls.append(True)
+        with patch.object(TopologyView,'draw',draw):
+            view=TopologyView();view.render(fixture());window=Gtk.Window();window.set_default_size(1000,650);window.set_child(view);window.present()
+            deadline=time.monotonic()+3
+            try:
+                while not calls and time.monotonic()<deadline:self.drain();time.sleep(.01)
+                self.assertTrue(calls,'Native Gtk.DrawingArea Cairo callback was not realized')
+            finally:window.destroy();self.drain()
+
     def setUp(self):
         fixture=test_monitor.MonitorTests();fixture.setUp();self.snapshot=fixture.value
         fixture=test_diagnostics.DiagnosticsTests();fixture.setUp();self.diagnostic=fixture.value
@@ -39,6 +68,73 @@ class GuiTests(unittest.TestCase):
         self.drain()
     def dialog(self):
         return next(w for w in self.app.get_windows() if isinstance(w,Gtk.MessageDialog))
+    def test_topology_graph_selection_layers_unknowns_and_stable_refresh(self):
+        from test_topology import fixture
+        view=self.app.topology_view;value=fixture();view.render(value)
+        self.app.stack.set_visible_child_name('topology');self.drain()
+        self.assertEqual(self.app.page_heading.get_text(),'TOPOLOGY')
+        self.assertIsInstance(view.canvas,Gtk.DrawingArea)
+        view.selected='fixture';view.show_details();view.render(value)
+        self.assertEqual(view.selected,'fixture');self.assertIn('Unknown',view.details.get_text())
+        view.layer.set_selected(1);self.drain()
+        view.render(None);self.assertIsNone(view.selected)
+        self.client.control.assert_not_called()
+    def test_device_diagnostics_visible_and_selected_page_is_explicit(self):
+        self.app.stack.set_visible_child_name('diagnostics');self.drain()
+        self.assertEqual(self.app.page_heading.get_text(),'DIAGNOSTICS')
+        page=self.app.stack.get_child_by_name('diagnostics')
+        self.assertIsInstance(page,Gtk.ScrolledWindow)
+        link=self.app.diagnostics_page.get_last_child()
+        self.assertIsInstance(link,Gtk.Button)
+        link.emit('clicked');self.drain()
+        self.assertIs(self.app.stack.get_visible_child(),self.app.device_view)
+        self.assertEqual(self.app.page_heading.get_text(),'DEVICES')
+        self.assertEqual(self.app.device_view.scroll.get_policy()[1],Gtk.PolicyType.ALWAYS)
+        self.assertTrue(self.app.device_view.panes.get_vexpand())
+    def test_independent_lan_device_without_dns_remains_visible_and_selectable(self):
+        import test_device_diagnostics
+        fixture=test_device_diagnostics.DeviceAwareTests();fixture.setUp()
+        fixture.value['devices']['devices']=[];fixture.value['devices']['lanDevices']=[fixture.lan()]
+        model=self.app.device_diagnostics;model.accept(fixture.value);view=self.app.device_view;view.render(model);self.drain()
+        self.assertEqual(len(model.rows),1)
+        self.assertIsNotNone(view.list.get_row_at_index(0))
+        self.assertIn('Unknown device',view.detail_title.get_text())
+        self.assertIn('LAN observation does not establish DNS path',view.technical_text.get_text())
+    def test_compact_device_rows_selection_and_refresh_preserve_uncertain_identity(self):
+        import test_device_diagnostics
+        fixture=test_device_diagnostics.DeviceAwareTests();fixture.setUp()
+        model=self.app.device_diagnostics;model.accept(copy.deepcopy(fixture.value))
+        self.app.device_view.render(model)
+        self.assertEqual(self.app.device_view.list.get_row_at_index(0).tracking,'a'*32)
+        self.assertIn('Unknown device',self.app.device_view.detail_title.get_text())
+        other=copy.deepcopy(fixture.row);other['trackingId']='b'*32;other['lastObservedAddress']='192.0.2.2'
+        fixture.value['devices']['devices'].append(other);model.accept(fixture.value)
+        # Same-time updates are deliberately ignored; new samples trigger a coherent rebuild.
+        model.previous=None;model.accept(fixture.value);self.app.device_view.render(model)
+        self.app.device_view.list.select_row(self.app.device_view.list.get_row_at_index(1))
+        self.assertEqual(self.app.device_view.selected_tracking,'b'*32)
+        self.app.device_view.render(model);self.assertEqual(self.app.device_view.selected_tracking,'b'*32)
+        self.assertFalse(self.app.device_view.technical.get_expanded())
+        model.accept(None);self.app.device_view.render(model)
+        self.assertIsNone(self.app.device_view.selected_tracking)
+        self.assertIsNone(self.app.device_view.list.get_row_at_index(0))
+        self.client.control.assert_not_called()
+    def test_all_sources_have_independent_list_and_detail_scroll_panes(self):
+        import test_device_diagnostics
+        fixture=test_device_diagnostics.DeviceAwareTests();fixture.setUp()
+        fixture.value['devices']['devices']=[]
+        for index in range(64):
+            row=copy.deepcopy(fixture.row);row['trackingId']=f'{index:032x}';row['lastObservedAddress']=f'2001:db8::{index+1:x}'
+            fixture.value['devices']['devices'].append(row)
+        model=self.app.device_diagnostics;model.accept(fixture.value);view=self.app.device_view;view.render(model)
+        self.assertIn('64 device/source rows',view.summary.get_text())
+        self.assertIs(view.panes.get_start_child(),view.scroll)
+        self.assertIs(view.panes.get_end_child(),view.detail_scroll)
+        self.assertIsNot(view.scroll.get_vadjustment(),view.detail_scroll.get_vadjustment())
+        self.assertIsNotNone(view.list.get_row_at_index(63));self.assertIsNone(view.list.get_row_at_index(64))
+        view.list.select_row(view.list.get_row_at_index(63));self.assertIn('2001:db8::40',view.detail_title.get_text())
+        self.client.control.assert_not_called()
+
     def test_running_stopped_failed_readback(self):
         self.assertEqual(self.app.engine_label.get_text(),'Running')
         for active,label in (('inactive','Stopped'),('failed','Failed')):
@@ -89,6 +185,15 @@ class GuiTests(unittest.TestCase):
         self.app.close_window(self.app.window)
         dialog.response(Gtk.ResponseType.YES)
         self.client.control.assert_not_called();self.assertTrue(self.app.closed)
+
+    def test_shared_vector_type_icons_keep_text_and_uncertainty(self):
+        from device_diagnostics_ui import DeviceTypeIcon
+        from device_types import assess
+        for confirmed,names,key in [('Phone',['office-printer'],'device-phone'),('Unknown',['my-iphone'],'device-unknown'),('',[],'device-unknown'),('',['office-printer'],'device-printer')]:
+            icon=DeviceTypeIcon(assess(confirmed,names))
+            self.assertEqual(icon.icon_key,key)
+            self.assertTrue(icon.get_tooltip_text())
+            self.assertGreater(len(icon.definition['strokes']),0)
 
     def test_navigation_and_details(self):
         self.assertEqual(self.app.stack.get_visible_child_name(),'overview')

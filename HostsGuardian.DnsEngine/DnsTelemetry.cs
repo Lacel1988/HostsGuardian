@@ -39,6 +39,7 @@ public sealed class RollingLatency
 
 public sealed class DnsTelemetry
 {
+    public DeviceDnsDiagnosticsStore Devices { get; } = new();
     private long _udp, _tcp, _allowed, _blocked, _failed, _rejected, _drops, _cancelled, _servfail;
     private long _attempts, _timeouts, _upstreamFailures, _retries, _fallback, _tcpRejected, _transportFailures;
     private int _current, _peak, _udpCurrent, _tcpCurrent, _connections;

@@ -79,9 +79,9 @@ class DiagnosticsTests(unittest.TestCase):
         self.assertGreater(graph_scale([1,10000,1],10),10000)
     def test_ui_has_no_analytics_policy_or_secret_widgets_and_packages_module(self):
         from pathlib import Path
-        source=Path('monitor.py').read_text()
+        source=Path(__file__).with_name('monitor.py').read_text(encoding='utf-8')
         for forbidden in ('ApiToken','CredentialPath','DeleteDevice','ReplacePolicy','dns-observations'):
             self.assertNotIn(forbidden,source)
-        self.assertIn('diagnostics.py usr/lib/hostsguardian-monitor',Path('debian/install').read_text())
+        self.assertIn('diagnostics.py usr/lib/hostsguardian-monitor',(Path(__file__).parent / 'debian/install').read_text(encoding='utf-8'))
 
 if __name__=='__main__':unittest.main()

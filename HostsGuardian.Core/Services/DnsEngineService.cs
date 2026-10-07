@@ -10,6 +10,8 @@ public sealed class DnsEngineService
 {
     private readonly Func<HttpClient>? _factory;
     private readonly ICredentialStore _credentials;
+    private ClassificationReadModel _classificationReadModel=new();
+    private string _classificationScope="";
     public DnsEngineService(Func<HttpClient>? httpFactory = null, ICredentialStore? credentials = null)
     { _factory = httpFactory; _credentials = credentials ?? new ProtectedCredentialStore(); }
     private static readonly JsonSerializerOptions Options = new() { PropertyNameCaseInsensitive = true };
@@ -85,6 +87,37 @@ public sealed class DnsEngineService
             return (result, batch);
         }
         catch { return (new(ConnectionState.Incompatible, "Invalid operational event contract"), null); }
+    }
+    public async Task<(ConnectionResult Connection, ProductActivityRead? Activity)> ReadActivityAsync(DnsEngineConfig cfg, CancellationToken ct = default)
+    {
+        var (connection, body) = await Send(cfg, "v3/activity", null, ct);
+        if (!connection.Ok) return (connection,null);
+        try
+        {
+            var read=JsonSerializer.Deserialize<ProductActivityRead>(body, Options);
+            if(read==null || read.SchemaVersion!=1 || read.Buckets==null || read.Buckets.Length>256 || read.RetentionHours!=24 || read.MaximumBuckets!=256 ||
+               read.Buckets.Any(b=>b==null || b.Allowed<0 || b.Blocked<0 || b.Failed<0 || b.ServiceName==null || b.ServiceName.Length>128 ||
+               b.WindowStartUtc>read.ObservedAtUtc || b.WindowStartUtc<read.ObservedAtUtc.AddHours(-24).AddMinutes(-5)))throw new JsonException();
+            return(connection,read);
+        }
+        catch{return(new(ConnectionState.Incompatible,"Invalid activity contract"),null);}
+    }
+
+    public async Task<(ConnectionResult Connection, PolicyAuditRead? Audit)> ReadPolicyAuditAsync(DnsEngineConfig cfg, CancellationToken ct = default)
+    {
+        var (connection, body) = await Send(cfg, "v3/policy-audit", null, ct);
+        if (!connection.Ok) return (connection, null);
+        try
+        {
+            var read = JsonSerializer.Deserialize<PolicyAuditRead>(body, Options);
+            if (read == null || read.SchemaVersion != 1 || read.MaximumEntries != 1000 || read.Entries == null || read.Entries.Length > 100 ||
+                read.Entries.Any(r => r == null || r.Operation == null || r.Operation.Length > 80 ||
+                    r.ActorEvidence == null || r.ActorEvidence.Length > 160 || r.Outcome == null || r.Outcome.Length > 80 ||
+                    r.PolicyHash == null || r.PolicyHash.Length != 64 || r.PolicyHash.Any(c => !Uri.IsHexDigit(c)) ||
+                    r.Changes == null || r.Changes.Length > 1024 || r.PreviousRevision < 0 || r.EffectiveRevision < 0)) throw new JsonException();
+            return (connection, read);
+        }
+        catch { return (new(ConnectionState.Incompatible, "Invalid policy audit contract"), null); }
     }
 
     public async Task<ConnectionResult> TestConnectionAsync(DnsEngineConfig cfg, CancellationToken ct = default)
@@ -215,7 +248,7 @@ public sealed class DnsEngineService
         try
         {
             var read = JsonSerializer.Deserialize<FullPolicyRead>(body, FullOptions);
-            if (read == null || read.Policy.SchemaVersion != 2 || read.Policy.Devices.IsDefault || read.Policy.Overrides.IsDefault
+            if (read == null || read.Policy.SchemaVersion is not (2 or 3) || read.Policy.Devices.IsDefault || read.Policy.Overrides.IsDefault
                 || read.Policy.GlobalBlockedDomains.IsDefault || read.Revision < 0 || string.IsNullOrWhiteSpace(read.InstanceId)) throw new JsonException();
             var canonical = PolicyCanonicalization.Canonicalize(read.Policy);
             if (JsonSerializer.Serialize(canonical, FullOptions) != JsonSerializer.Serialize(read.Policy, FullOptions)) throw new JsonException();
@@ -232,6 +265,8 @@ public sealed class DnsEngineService
         try
         {
             using var document = JsonDocument.Parse(capabilities);
+            if (request.Policy.SchemaVersion == 3 && (!document.RootElement.TryGetProperty("supportedPolicySchemas", out var schemas) ||
+                !schemas.EnumerateArray().Any(v => v.GetInt32() == 3))) throw new JsonException();
             if (document.RootElement.GetProperty("policySchemaVersion").GetInt32() != 2
                 || !document.RootElement.GetProperty("fullPolicyReadback").GetBoolean()
                 || !document.RootElement.GetProperty("optimisticConcurrency").GetBoolean()) throw new JsonException();
@@ -267,12 +302,47 @@ public sealed class DnsEngineService
         try
         {
             var explanation = JsonSerializer.Deserialize<EffectivePolicyExplanation>(body, FullOptions);
-            if (explanation == null || explanation.Domain != DomainName.Normalize(domain)) throw new JsonException();
+            if (explanation == null || explanation.Domain != DomainName.Normalize(domain) || explanation.DecisionChain.IsDefault || explanation.DecisionChain.Length > 128 ||
+                explanation.DecisionChain.Any(r => r == null || !Enum.IsDefined(r.Layer) || !Enum.IsDefined(r.State) ||
+                    r.State == DeviceDomainRuleState.Inherit || r.Domain != DomainName.Normalize(r.Domain) || !PolicyDecision.Matches(explanation.Domain, r.Domain) ||
+                    r.Source is not ("GlobalBlock" or "GlobalAllow" or "GroupRule" or "ActiveProfile" or "ActiveSchedule" or "DeviceOverride")) ||
+                (explanation.Winner != null && (explanation.DecisionChain.IsEmpty || explanation.DecisionChain[0] != explanation.Winner ||
+                    explanation.Blocked != (explanation.Winner.State == DeviceDomainRuleState.Block)))) throw new JsonException();
             return (result, explanation);
         }
         catch { return (new(ConnectionState.Incompatible, "Malformed policy explanation"), null); }
     }
 
+    public async Task<LanDeviceObservation[]> ReadLanDiscoveryAsync(DnsEngineConfig cfg,CancellationToken ct=default)
+    {
+        var (result,body)=await Send(cfg,"v2/discovery",null,ct);if(!result.Ok)return [];
+        try
+        {
+            var rows=JsonSerializer.Deserialize<LanDeviceObservation[]>(body,FullOptions);
+            if(rows==null || rows.Length>64 || rows.Any(r=>r==null || r.ObservationDeviceId==Guid.Empty || r.Presence!="OBSERVED" ||
+                r.Coverage is not ("UNKNOWN" or "PARTIAL") || r.ResolverPath!="UNKNOWN" || r.DnsActivity is not ("OBSERVED" or "NOT OBSERVED") ||
+                r.Evidence==null || r.Evidence.Length is <1 or >8 || r.Evidence.Any(e=>e==null || !System.Net.IPAddress.TryParse(e.Address,out _) ||
+                    e.Mac==null || e.Mac.Length>32 || e.Hostname==null || e.Hostname.Length>128 || e.Hostname.Any(char.IsControl) ||
+                    e.Provenance==null || e.Provenance.Length>160 || e.Provenance.Any(char.IsControl)))) throw new JsonException();
+            var scope=cfg.BaseUrl+"|"+cfg.CredentialId;
+            if(scope!=_classificationScope){_classificationReadModel=new();_classificationScope=scope;}
+            return rows.Select(row=>_classificationReadModel.Apply(row,DateTimeOffset.UtcNow)).ToArray();
+        }
+        catch {return [];}
+    }
+    public async Task<(ConnectionResult Connection, NetworkIdentityEvidence[]? Evidence)> ReadIdentityEvidenceAsync(DnsEngineConfig cfg, CancellationToken ct=default, bool refresh=false)
+    {
+        var (result,body)=await Send(cfg,refresh?"v2/discovery/refresh":"v2/identity-evidence",refresh?"{}":null,ct);
+        if(!result.Ok) return (result,null);
+        try
+        {
+            var rows=JsonSerializer.Deserialize<NetworkIdentityEvidence[]>(body,FullOptions);
+            if(rows==null || rows.Length>64 || rows.Any(r=>r==null || !System.Net.IPAddress.TryParse(r.Address,out _) || r.Mac==null || r.Mac.Length>32 || r.Hostname==null || r.Hostname.Length>128 || r.Provenance==null || r.Provenance.Length>160 ||
+                r.Hostname.Any(char.IsControl) || r.Provenance.Any(char.IsControl) || (r.ReadAtUtc ?? r.ObservedAtUtc)<DateTimeOffset.UtcNow.AddMinutes(-1) || r.ObservedAtUtc>DateTimeOffset.UtcNow.AddSeconds(30))) throw new JsonException();
+            return (result,rows);
+        }
+        catch { return (new(ConnectionState.Incompatible,"Malformed identity evidence"),null); }
+    }
     public async Task<(ConnectionResult Connection, BindingRead? Bindings)> ReadBindingsAsync(DnsEngineConfig cfg, CancellationToken ct = default)
     {
         var (result, body) = await Send(cfg, "v2/bindings", null, ct);

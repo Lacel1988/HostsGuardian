@@ -10,6 +10,14 @@ public sealed class AddressBindingStore
     private BindingRead _snapshot = new(0, []);
     private readonly object _gate = new();
     public BindingRead Read() => Volatile.Read(ref _snapshot);
+    internal void PublishObserved(ImmutableArray<AddressBindingObservation> observations)
+    {
+        lock(_gate) {
+            var current=Read();if(current.Observations.SequenceEqual(observations))return;
+            if(current.Generation==long.MaxValue) { Volatile.Write(ref _snapshot,new(current.Generation,[]));return; }
+            Volatile.Write(ref _snapshot,new(current.Generation+1,observations));
+        }
+    }
     public bool Replace(BindingReplace candidate)
     {
         if (candidate.Observations.IsDefault || candidate.Observations.Length > 4096) throw new ArgumentException("Invalid bindings");
@@ -18,7 +26,9 @@ public sealed class AddressBindingStore
             if (observation == null || !IPAddress.TryParse(observation.Address, out var address) || address.AddressFamily != AddressFamily.InterNetwork
                 || address.ToString() != observation.Address || observation.DeviceId == Guid.Empty
                 || string.IsNullOrWhiteSpace(observation.Provenance) || observation.Provenance.Length > 128
-                || observation.NetworkScope?.Length > 128 || observation.ExpiresAtUtc <= observation.ObservedAtUtc
+                || observation.NetworkScope?.Length > 128 || observation.Interface?.Length > 64
+                || (observation.MacEvidence!=null && HostsGuardian.Core.Services.DevicePolicyIdentity.NormalizeMac(observation.MacEvidence)!=observation.MacEvidence)
+                || observation.ExpiresAtUtc <= observation.ObservedAtUtc
                 || observation.ExpiresAtUtc - observation.ObservedAtUtc > TimeSpan.FromDays(1))
                 throw new ArgumentException("Invalid binding observation");
         }
@@ -42,6 +52,8 @@ public sealed class AddressBindingStore
         if (ids.Length != 1) return (null, "Ambiguous");
         var device = policy.Devices.SingleOrDefault(d => d.DeviceId == ids[0]);
         if (device == null) return (null, "Unregistered");
+        if(fresh.Any(b=>b.MacEvidence!=null && HostsGuardian.Core.Services.DevicePolicyIdentity.NormalizeMac(device.Mac)!=b.MacEvidence))
+            return (null,"StaleOrUnvalidated");
         if (device.Mac != null && policy.Devices.Count(d => d.Mac == device.Mac && (context.NetworkScope == null || d.Scope == device.Scope)) != 1)
             return (null, "AmbiguousStableIdentity");
         return (device.DeviceId, "Validated");

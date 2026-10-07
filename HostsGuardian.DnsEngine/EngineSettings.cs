@@ -9,6 +9,7 @@ public sealed record EngineSettings(
     int UpstreamTimeoutMs, IPAddress ApiAddress, int ApiPort,
     string CredentialPath, string CertificatePath, string CertificateKeyPath)
 {
+    public bool EnableIpv6Dns { get; init; } = true;
     public string PolicyFilePath { get; init; } = "";
     public int UpstreamRetryCount { get; init; } = 1;
     public IPEndPoint? FallbackEndpoint { get; init; }
@@ -40,6 +41,7 @@ public sealed record EngineSettings(
             blocked, config.UpstreamTimeoutMs, apiAddress, config.ApiPort,
             config.CredentialPath, config.CertificatePath, config.CertificateKeyPath)
         {
+            EnableIpv6Dns = config.EnableIpv6Dns,
             PolicyFilePath = Path.GetFullPath(config.PolicyFilePath),
             UpstreamRetryCount = config.UpstreamRetryCount,
             FallbackEndpoint = fallback,

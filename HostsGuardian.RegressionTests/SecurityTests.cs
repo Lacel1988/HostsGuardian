@@ -144,12 +144,32 @@ internal static class SecurityTests
         {
             using var http = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false, ServerCertificateCustomValidationCallback = (_,cert,_,errors) => ManagementSecurity.ValidateCertificate(cert,enrollment,errors) });
             var endpoint = $"https://127.0.0.1:{config.ApiPort}";
+            await asyncTest("Control-plane metadata delivers over authenticated API to LAN-only discovery and diagnostics", async () =>
+            {
+                var local=PassiveIdentityEvidence.Read().First(e=>e.Mac!="" && e.Interface!="" && e.Provenance.Contains("local OS"));
+                var cfg=new DnsEngineConfig {Address="127.0.0.1",ManagementPort=config.ApiPort,TrustedCertificate=enrollment,ApiToken=token};
+                var client=new DnsEngineService();var before=await client.ReadFullPolicyAsync(cfg);var id=Guid.NewGuid();
+                var candidate=PolicyCanonicalization.Canonicalize(new FullDnsPolicy(3,[],[new(id,"User named fixture",local.Mac,"fixture","Explicit fixture user registration"){Metadata=new("Friendly fixture","","Laptop","")}],[]));
+                var sent=await client.ReplaceFullPolicyAsync(cfg,new(before.Policy!.Revision,candidate,before.Policy.InstanceId));
+                Check(sent.Confirmed,"Metadata delivery not confirmed");
+                var discovered=await client.ReadLanDiscoveryAsync(cfg);var match=discovered.Single(o=>o.Identity?.DeviceId==id);
+                Check(match.Identity!.DeviceType=="Laptop" && match.Identity!.FriendlyName=="Friendly fixture" && match.Identity.ObservedHostname==local.Hostname && match.DnsActivity=="NOT OBSERVED" && match.Coverage=="UNKNOWN","LAN-only metadata round trip missing");
+                candidate=candidate with {Devices=[DeviceIdentityProjection.Rename(candidate.Devices[0],"Renamed fixture")]};
+                // Local editing alone cannot affect the accepted replica.
+                Check((await client.ReadLanDiscoveryAsync(cfg)).Single(o=>o.Identity?.DeviceId==id).Identity!.FriendlyName=="Friendly fixture","Draft leaked before delivery");
+                var renamed=await client.ReplaceFullPolicyAsync(cfg,new(sent.Readback!.Revision,candidate,sent.Readback.InstanceId));
+                Check(renamed.Confirmed && (await client.ReadLanDiscoveryAsync(cfg)).Single(o=>o.Identity?.DeviceId==id).Identity!.DeviceType=="Laptop" && (await client.ReadLanDiscoveryAsync(cfg)).Single(o=>o.Identity?.DeviceId==id).Identity!.FriendlyName=="Renamed fixture","Rename did not propagate after explicit delivery");
+                using var message=new HttpRequestMessage(HttpMethod.Get,endpoint+"/v2/diagnostics");message.Headers.Authorization=new("Bearer",token);
+                using var response=await http.SendAsync(message);using var document=JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+                Check(document.RootElement.GetProperty("devices").GetProperty("lanDevices").EnumerateArray().Any(o=>o.GetProperty("identity").GetProperty("friendlyName").GetString()=="Renamed fixture"),"Monitor publication contract missed metadata");
+                var restored=await client.ReplaceFullPolicyAsync(cfg,new(renamed.Readback!.Revision,before.Policy.Policy,renamed.Readback.InstanceId));Check(restored.Confirmed,"Fixture restoration failed");
+            });
             await asyncTest("all management endpoints authenticate before policy access", async () =>
             {
-                foreach (var route in new[] { "/", "/health", "/dns/status", "/rules/blocked", "/rules/blocked/replace", "/rules/blocked/add", "/rules/blocked/remove", "/v2/capabilities", "/v2/policy", "/v2/policy/replace", "/v2/bindings", "/v2/bindings/replace", "/v2/effective-policy", "/v2/dns-observations", "/unknown" })
+                foreach (var route in new[] { "/", "/health", "/dns/status", "/rules/blocked", "/rules/blocked/replace", "/rules/blocked/add", "/rules/blocked/remove", "/v2/capabilities", "/v2/policy", "/v2/policy/replace", "/v2/bindings", "/v2/bindings/replace", "/v2/effective-policy", "/v2/dns-observations", "/v2/identity-evidence", "/v2/discovery", "/v2/discovery/refresh", "/v3/activity", "/v3/policy-audit", "/v2/operational-events", "/unknown" })
                 foreach (var header in new[] { "", "Bearer ", "Bearer invalid", "Bearer "+wrong, "Bearer "+token+",Bearer "+token })
                 {
-                    using var message = new HttpRequestMessage(route.Contains("replace") || route.EndsWith("add") || route.EndsWith("remove") ? HttpMethod.Post : HttpMethod.Get,endpoint+route);
+                    using var message = new HttpRequestMessage(route.Contains("replace") || route.EndsWith("add") || route.EndsWith("remove") || route.EndsWith("refresh") ? HttpMethod.Post : HttpMethod.Get,endpoint+route);
                     if (header != "") message.Headers.TryAddWithoutValidation("Authorization",header);
                     message.Content = new StringContent("malformed");
                     using var response = await http.SendAsync(message); Check(response.StatusCode == HttpStatusCode.Unauthorized,"Unauthorized route accepted: "+route);
@@ -164,6 +184,15 @@ internal static class SecurityTests
                 var result = await client.TestConnectionAsync(clientConfig);
                 Check(result.Ok && result.Transport != null && !result.Transport.UdpListening,"Authenticated test failed: "+result.Message);
                 Check(before == JsonSerializer.Serialize(clientConfig) && policy.SequenceEqual(rules.GetBlockedDomains()),"Connection test changed state");
+            });
+            await asyncTest("roadmap authenticated activity/audit reads preserve complete production-shaped policy", async () =>
+            {
+                var before = File.ReadAllBytes(config.PolicyFilePath);
+                var activity = await client.ReadActivityAsync(clientConfig);
+                var audit = await client.ReadPolicyAuditAsync(clientConfig);
+                Check(activity.Connection.Ok && activity.Activity?.Buckets.Length == 0, "Activity read failed");
+                Check(audit.Connection.Ok && audit.Audit?.Available == true && audit.Audit.Entries.Length > 0, "Audit read failed");
+                Check(before.SequenceEqual(File.ReadAllBytes(config.PolicyFilePath)), "Read-only insight changed persisted policy");
             });
             await asyncTest("trust and authentication errors are sanitized", async () =>
             {

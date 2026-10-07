@@ -24,8 +24,8 @@ public sealed class EngineLifetime
             _dns.RuntimeStatus.SetRuntimeState("Starting");
             _api.InitializePolicyForStartup();
             await _api.StartAsync(cancellationToken);
-            await _dns.StartAsync(cancellationToken);
-            await _tcp.StartAsync(cancellationToken);
+            await BoundedListenerRecovery.StartAsync(() => _dns.StartAsync(cancellationToken), "DNS", cancellationToken);
+            await BoundedListenerRecovery.StartAsync(() => _tcp.StartAsync(cancellationToken), "TCP DNS", cancellationToken);
             _dns.RuntimeStatus.SetRuntimeState("Running");
             EngineLog.Information("Engine", "Startup complete");
             var cancellation = Task.Delay(Timeout.Infinite, lifetimeWait.Token);

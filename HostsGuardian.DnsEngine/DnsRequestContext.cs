@@ -7,5 +7,5 @@ public sealed record DnsRequestContext(DnsTransport Transport, string SourceAddr
     DateTimeOffset ReceivedAtUtc, string? NetworkScope)
 {
     public static DnsRequestContext From(DnsTransport transport, IPEndPoint peer, DateTimeOffset receivedAtUtc,
-        string? networkScope = null) => new(transport, peer.Address.ToString(), peer.Port, receivedAtUtc, networkScope);
+        string? networkScope = null) => new(transport, (peer.Address.IsIPv4MappedToIPv6 ? peer.Address.MapToIPv4() : peer.Address).ToString(), peer.Port, receivedAtUtc, networkScope);
 }

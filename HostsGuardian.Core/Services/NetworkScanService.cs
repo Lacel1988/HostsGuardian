@@ -1,4 +1,4 @@
-﻿using HostsGuardian.Core.Models;
+using HostsGuardian.Core.Models;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -19,13 +19,11 @@ public sealed class NetworkScanService
         if (string.IsNullOrWhiteSpace(gateway) || string.IsNullOrWhiteSpace(localIp))
             return new List<DeviceInfo>();
 
-        var prefix = Get24Prefix(localIp);
-        if (string.IsNullOrWhiteSpace(prefix))
-            return new List<DeviceInfo>();
-
-        // 1) ping sweep (kicsi, gyors, nem bánt semmit)
-        var ips = Enumerable.Range(1, Math.Min(254, maxHostsToProbe))
-            .Select(i => prefix + i.ToString())
+        var localAddress=IPAddress.Parse(localIp);
+        var unicast=NetworkInterface.GetAllNetworkInterfaces().SelectMany(n=>n.GetIPProperties().UnicastAddresses).FirstOrDefault(a=>a.Address.Equals(localAddress));
+        if(unicast==null)return new List<DeviceInfo>();
+        // Explicit bounded echo refresh, using the actual local prefix rather than assuming /24.
+        var ips = LanDiscoveryRefresh.Targets(localAddress,unicast.PrefixLength).Take(Math.Min(254,maxHostsToProbe))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 
@@ -87,6 +85,13 @@ public sealed class NetworkScanService
             });
         }
 
+        foreach(var evidence in PassiveIdentityEvidence.Read())
+        {
+            var row=results.FirstOrDefault(r=>r.Ip==evidence.Address);
+            if(row==null) { row=new DeviceInfo {Ip=evidence.Address,IsOnline=true}; results.Add(row); }
+            if(row.Mac=="") row.Mac=evidence.Mac;
+            if(row.Hostname=="") row.Hostname=evidence.Hostname;
+        }
         return results;
     }
 

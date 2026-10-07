@@ -47,7 +47,7 @@ public sealed class OperationalHealth
             var processingRatio = processingFailures / (double)Math.Max(1, completed);
             // Startup/stopping are not outages. Explicit faults are immediate, even outside Running.
             var running = status.RuntimeState is "Running" or "Degraded";
-            Change("Listeners", status.UdpState == "Faulted" || status.TcpState == "Faulted" || (running && (!status.UdpListening || !status.TcpListening)) ? "Critical" : "Healthy", now, true);
+            Change("Listeners", status.Ipv6UdpState == "Faulted" || status.Ipv6TcpState == "Faulted" || status.UdpState == "Faulted" || status.TcpState == "Faulted" || (running && (!status.UdpListening || !status.TcpListening)) ? "Critical" : "Healthy", now, true);
             Change("Management", status.ManagementState == "Faulted" || (running && !status.ManagementListening) ? "Critical" : "Healthy", now, true);
             Change("Persistence", status.PersistenceFault != "" || (running && !status.PolicyLoaded) ? "Degraded" : "Healthy", now, true);
             var upstreamBad = evidence && (upstreamRatio >= _defaults.FailureRatio || (latency.Samples >= _defaults.MinimumObservations && latency.P95Ms > _defaults.SlowP95Ms));
@@ -107,10 +107,12 @@ public sealed class EngineDiagnostics
             if (_previousTicks != 0 && ticks - _previousTicks >= Stopwatch.Frequency / 2)
                 _cpu = Math.Max(0, (cpu - _previousCpu).TotalSeconds / ((ticks - _previousTicks) / (double)Stopwatch.Frequency) / Environment.ProcessorCount * 100);
             if (_previousTicks == 0 || ticks - _previousTicks >= Stopwatch.Frequency / 2) { _previousCpu = cpu; _previousTicks = ticks; }
+            var policy = _status.PolicyForDiagnostics;
             return new(1, _instance, DateTimeOffset.UtcNow, _telemetry.Counters(), _telemetry.Pressure(),
                 _telemetry.UpstreamLatency.Snapshot(), _telemetry.ProcessingLatency.Snapshot(), _telemetry.Resolvers(),
                 new((ticks - _startTicks) / (double)Stopwatch.Frequency, _cpu, memory, Environment.ProcessId, _started,
-                    typeof(EngineDiagnostics).Assembly.GetName().Version?.ToString() ?? "Unknown"), Health.Overall, Health.Components());
+                    typeof(EngineDiagnostics).Assembly.GetName().Version?.ToString() ?? "Unknown"), Health.Overall, Health.Components()) { Devices = _telemetry.Devices.Snapshot(
+                        policy.Policy ?? FullDnsPolicy.Empty, _instance, policy.Revision, DateTimeOffset.UtcNow) };
         }
     }
     public void EvaluateOnce()

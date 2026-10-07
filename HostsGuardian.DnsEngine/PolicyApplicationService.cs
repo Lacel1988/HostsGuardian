@@ -15,12 +15,14 @@ public sealed class PolicyApplicationService
     private readonly object _mutationGate = new();
     private bool _initialized;
     public EnginePolicyState State { get; }
+    public PolicyAuditStore Audit { get; }
 
     public PolicyApplicationService(RuleStore rules, PolicyPersistence persistence, EnginePolicyState? state = null)
     {
         _rules = rules;
         _persistence = persistence;
         State = state ?? new EnginePolicyState();
+        Audit = new PolicyAuditStore(persistence.AuditPath);
     }
 
     public void InitializeForStartup()
@@ -94,6 +96,8 @@ public sealed class PolicyApplicationService
             var current = State.GetSnapshot();
             if (!enabled && !current.Loaded) return Failure("RestoreFault", "Replace authorized policy before leaving Safe Mode");
             State.Publish(current with { SafeMode = enabled, SafeModeReason = enabled ? "ManagementRequested" : "" });
+            Audit.Record(new(DateTimeOffset.UtcNow, enabled ? "SafeModeEnter" : "SafeModeExit", "Management boundary; user identity unavailable",
+                current.Revision, current.Revision, "Success", Hash(current.Policy)));
             return new PolicyApplicationResult(true, current.Revision, current.RuleCount);
         }
     }
@@ -148,14 +152,30 @@ public sealed class PolicyApplicationService
             Loaded = true, Revision = revision, RuleCount = candidate.GlobalBlockedDomains.Length, PersistenceFault = "", Policy = candidate,
             SafeModeReason = current.SafeMode ? "ManagementRequested" : ""
         });
+        Audit.Record(new(DateTimeOffset.UtcNow, "PolicyCommit", "Management boundary; user identity unavailable",
+            current.Revision, revision, "Success", Hash(candidate)) { Changes = Changes(current.Policy, candidate) });
         return new PolicyApplicationResult(true, revision, candidate.GlobalBlockedDomains.Length, removed);
     }
 
     private PolicyApplicationResult Failure(string category, string message)
     {
         var current = State.GetSnapshot();
+        Audit.Record(new(DateTimeOffset.UtcNow, category, "Management boundary; user identity unavailable",
+            current.Revision, current.Revision, "Rejected", Hash(current.Policy)));
         return new PolicyApplicationResult(false, current.Revision, current.RuleCount, FailureCategory: category, Message: message);
     }
+    private static string Changes(FullDnsPolicy? before, FullDnsPolicy after)
+    {
+        before ??= FullDnsPolicy.Empty;
+        var changes = new List<string>();
+        if (!before.GlobalBlockedDomains.SequenceEqual(after.GlobalBlockedDomains)) changes.Add("Global domains changed");
+        if (!before.Devices.SequenceEqual(after.Devices)) changes.Add("Registry or metadata changed");
+        if (!before.Overrides.SequenceEqual(after.Overrides)) changes.Add("Device overrides changed");
+        if (System.Text.Json.JsonSerializer.Serialize(before.Program) != System.Text.Json.JsonSerializer.Serialize(after.Program)) changes.Add("Groups/catalog/profiles/schedules changed");
+        return changes.Count == 0 ? "Semantically unchanged policy delivery" : string.Join("; ", changes);
+    }
+    private static string Hash(FullDnsPolicy? policy) =>
+        Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(policy ?? FullDnsPolicy.Empty, PolicyPersistence.JsonOptions)));
 
     private static string[] Normalize(IEnumerable<string> domains)
     {

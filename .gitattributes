@@ -61,3 +61,7 @@
 #*.PDF   diff=astextplain
 #*.rtf   diff=astextplain
 #*.RTF   diff=astextplain
+
+# Linux entry points must remain kernel-executable after Windows checkout.
+linux-monitor/packaging/* text eol=lf
+linux-monitor/debian/rules text eol=lf

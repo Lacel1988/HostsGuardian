@@ -1,0 +1,33 @@
+# REVIEW TEMPLATE ONLY. Not installed or enabled.
+[Unit]
+Description=HostsGuardian bounded exact-target IPv4 validator
+
+[Service]
+Type=simple
+User=@ENGINE_USER@
+Group=@ENGINE_GROUP@
+ExecStart=/usr/bin/python3 -I -B @ROOT_PROTECTED_HELPER@ --socket /run/hostsguardian-validator/validator.sock --interface @ALLOWED_INTERFACE@ --engine-uid @ENGINE_UID@ --engine-executable @ROOT_PROTECTED_ENGINE_EXECUTABLE@
+Sockets=hostsguardian-network-validator.socket
+UnsetEnvironment=LD_PRELOAD LD_LIBRARY_PATH PYTHONPATH PYTHONHOME DBUS_SYSTEM_BUS_ADDRESS
+UMask=0077
+CapabilityBoundingSet=CAP_NET_RAW
+AmbientCapabilities=CAP_NET_RAW
+NoNewPrivileges=yes
+RestrictAddressFamilies=AF_UNIX AF_PACKET AF_INET
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+LockPersonality=yes
+RestrictSUIDSGID=yes
+MemoryMax=64M
+TasksMax=8
+TimeoutStopSec=5
+Restart=on-failure
+RestartSec=5
+
+[Install]
+Also=hostsguardian-network-validator.socket

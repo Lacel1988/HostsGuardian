@@ -16,6 +16,15 @@ public partial class MainWindow : Window
     public MainWindow(HostsGuardian.Wpf.ViewModels.MainViewModel viewModel)
     {
         InitializeComponent(); DataContext = viewModel;
-        Closed += (_, _) => viewModel.Dispose();
+        void ActivateNotification(string page)
+        {
+            Show(); WindowState = WindowState.Normal; Activate();
+            if (page == "Policy") viewModel.PolicyWorkspaceCommand.Execute(null);
+            else viewModel.OpenNotification(new("activation", Services.NotificationCategory.EngineDns,
+                Services.NotificationSeverity.Information, "", "", page));
+        }
+        Services.WindowsNotificationSink.Instance.Activated += ActivateNotification;
+        Loaded += (_, _) => Services.WindowsNotificationSink.Instance.ConsumePending();
+        Closed += (_, _) => { Services.WindowsNotificationSink.Instance.Activated -= ActivateNotification; viewModel.Dispose(); };
     }
 }

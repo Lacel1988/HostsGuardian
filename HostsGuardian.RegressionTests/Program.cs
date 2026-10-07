@@ -6,6 +6,19 @@ using HostsGuardian.Core.Models;
 using HostsGuardian.Core.Services;
 using HostsGuardian.DnsEngine;
 
+if(args.Contains("--fingerprint-observe"))
+{
+    await FingerprintDiscovery.RefreshAsync();
+    var now=DateTimeOffset.UtcNow;var observations=new LanObservationStore().Observe(PassiveIdentityEvidence.Read(),now);
+    Console.WriteLine(JsonSerializer.Serialize(new {observations,evidence=FingerprintDiscovery.Snapshot(now),report=FingerprintDiscovery.LastReport},new JsonSerializerOptions{PropertyNamingPolicy=JsonNamingPolicy.CamelCase}));return;
+}
+if(args.Contains("--lan-discovery-observe") || args.Contains("--lan-discovery-passive"))
+{
+    var evidence=args.Contains("--lan-discovery-passive")?PassiveIdentityEvidence.Read():await LanDiscoveryRefresh.RefreshAsync();
+    var observations=new LanObservationStore().Observe(evidence,DateTimeOffset.UtcNow);
+    Console.WriteLine(JsonSerializer.Serialize(new {observations,evidence,discoveryStatus=LanDiscoveryRefresh.LastReport},new JsonSerializerOptions{PropertyNamingPolicy=JsonNamingPolicy.CamelCase}));
+    return;
+}
 var passed = 0;
 var fixtureRoot = Path.Combine(Path.GetTempPath(), "HostsGuardian-regression-" + Guid.NewGuid().ToString("N"));
 Directory.CreateDirectory(fixtureRoot);
@@ -28,6 +41,18 @@ var config = new AppConfig { BlockedDomains = new()
 
 try
 {
+    FingerprintTests.Run(Test);
+    Test("shared device type inference preserves uncertainty and user authority", () =>
+    {
+        Check(DeviceTypes.All.Count == 13 && DeviceTypes.All.Select(t=>t.IconKey).Distinct().Count()==13, "Catalog/icon mismatch");
+        Check(DeviceTypes.All.All(t=>t.Strokes.Length>0 && t.IconPath.StartsWith("M ")), "Missing vector icon");
+        Check(DeviceTypes.Assess("Phone",["office-printer"]).Type.Id=="Phone", "Inference overrode user");
+        Check(DeviceTypes.Assess("Unknown",["my-iphone"]).Source=="USER-CONFIRMED", "Explicit Unknown lost");
+        Check(DeviceTypes.Assess("",["my-iphone"]).Confidence=="Low", "Hostname certainty fabricated");
+        foreach(var names in new[]{Array.Empty<string>(),new[]{"Samsung"},new[]{"phone-printer"},new[]{"my-phone","other-phone"}})
+            Check(DeviceTypes.Assess("",names).Type.Id=="Unknown", "Ambiguous/vendor evidence classified");
+        Check(DeviceTypes.Assess("LegacyType",["my-iphone"]).Type.Id=="Unknown", "Legacy user metadata silently replaced");
+    });
     Test("mechanism selection matrix", () =>
     {
         Check(DomainPolicySelection.ForDns(config.BlockedDomains).SequenceEqual(new[] { "both.invalid", "dns.invalid" }), "DNS leaked unselected domains");
@@ -193,7 +218,12 @@ try
         Check(!(await new DnsCacheFlushService(_ => throw new OperationCanceledException()).FlushAsync()).Success, "Timeout reported success");
         Check(!(await new DnsCacheFlushService(_ => throw new System.ComponentModel.Win32Exception()).FlushAsync()).Success, "Start failure reported success");
     });
+    await ValidatedBindingTests.Run(Test, AsyncTest, fixtureRoot);
+    await NetworkTopologyTests.Run(Test,AsyncTest);
     IntegratedPolicyTests.Run(Test, fixtureRoot);
+    RoadmapPolicyTests.Run(Test, fixtureRoot);
+    RoadmapDataTests.Run(Test, fixtureRoot);
+    DeviceDiagnosticsTests.Run(Test, fixtureRoot);
     await FullPolicyClientTests.Run(AsyncTest);
     ArchitectureTests.Run(Test);
     await SecurityTests.Run(Test, AsyncTest, fixtureRoot);
@@ -202,8 +232,12 @@ try
     await Phase5BTests.Run(Test, AsyncTest, fixtureRoot);
     await Phase5CTests.Run(Test, AsyncTest, fixtureRoot);
     await Phase5DTests.Run(Test, AsyncTest, fixtureRoot);
+    await RoadmapRecoveryTests.Run(AsyncTest, fixtureRoot);
+    await RoadmapNetworkTests.Run(AsyncTest, fixtureRoot);
     await Phase5ES1Tests.Run(Test, AsyncTest, fixtureRoot);
     await DiagnosticsTests.Run(Test, AsyncTest, fixtureRoot);
+    await DualStackTests.Run(Test, AsyncTest, fixtureRoot);
+    LanDiscoveryTests.Run(Test);
     Console.WriteLine($"{passed} regression groups passed. No system hosts, real DNS, or deployment service was changed.");
 }
 finally { Console.WriteLine("Isolated fixture directory: " + fixtureRoot); }

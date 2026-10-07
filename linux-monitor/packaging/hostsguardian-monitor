@@ -1,8 +1,31 @@
 #!/usr/bin/python3
-import sys
-sys.path.insert(0, "/usr/lib/hostsguardian-monitor")
-from monitor import Monitor
+"""Normal-user entry point; smoke mode imports UI dependencies without opening UI."""
+import json
 import os
+from pathlib import Path
+import sys
+sys.dont_write_bytecode = True
+
 if os.geteuid() == 0:
     raise SystemExit("Run as a graphical-session user, never root.")
-Monitor().run(sys.argv)
+
+# Also supports execution from an unprivileged extracted-package fixture.
+library = Path(__file__).resolve().parents[1] / "lib/hostsguardian-monitor"
+sys.path.insert(0, str(library))
+from monitor import Monitor
+
+if "--smoke-check" in sys.argv[1:]:
+    if sys.argv[1:] != ["--smoke-check"]:
+        raise SystemExit("Use --smoke-check without other arguments.")
+    import gi
+    gi.require_foreign("cairo")
+    import cairo
+    from topology_ui import CAIRO_AVAILABLE
+    if not CAIRO_AVAILABLE:
+        raise SystemExit("Topology Cairo rendering dependency unavailable.")
+    print(json.dumps(dict(status="MONITOR_LAUNCH_SMOKE_PASS", uid=os.geteuid(),
+                          launcher=str(Path(__file__).resolve()), library=str(library),
+                          applicationStarted=False, serviceActions=False,
+                          cairo=True, topology=True)))
+else:
+    Monitor().run(sys.argv)

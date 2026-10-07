@@ -1,4 +1,5 @@
 using HostsGuardian.Core.Models;
+using HostsGuardian.Core.Services;
 namespace HostsGuardian.DnsEngine;
 
 public static class DevicePolicyEvaluator
@@ -11,6 +12,12 @@ public static class DevicePolicyEvaluator
         if (!snapshot.FilteringEnabled)
             return new(snapshot.Revision, bindings.Generation, identity.DeviceId, identity.State, name,
                 DeviceDomainRuleState.Inherit, false, snapshot.SafeMode ? "SafeModeBypass" : "FilteringDisabled");
+        if (policy.SchemaVersion == 3)
+        {
+            var (winner, chain) = PolicyDecision.Explain(policy, identity.DeviceId, name, now);
+            return new(snapshot.Revision, bindings.Generation, identity.DeviceId, identity.State, name,
+                winner.State, winner.State == DeviceDomainRuleState.Block, winner.Source) { Winner = winner, DecisionChain = chain };
+        }
         if (identity.DeviceId is Guid id)
         {
             var rule = policy.Overrides.Where(o => o.DeviceId == id && Matches(name, o.Domain))

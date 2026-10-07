@@ -13,7 +13,7 @@ public sealed class TcpDnsServer : IAsyncDisposable
     private readonly SemaphoreSlim _lifecycleGate = new(1, 1);
     private readonly object _connectionsGate = new();
     private readonly Dictionary<TcpClient, Task> _connections = new();
-    private TcpListener? _listener;
+    private Socket? _listener;
     private CancellationTokenSource? _cancellation;
     private Task? _acceptLoop;
     private int _malformedReported;
@@ -36,9 +36,15 @@ public sealed class TcpDnsServer : IAsyncDisposable
         {
             if (_listener != null) return;
             _status.SetTcpState("Starting");
-            var listener = new TcpListener(IPAddress.Any, _settings.DnsPort);
-            try { listener.Start(MaximumConnections); }
-            catch { listener.Stop(); _status.SetTcpState("Faulted"); throw; }
+            Socket? listener = null;
+            try
+            {
+                var binding = DnsListenerSocket.Bind(SocketType.Stream, _settings.DnsPort, _settings.EnableIpv6Dns);
+                listener = binding.Socket;
+                listener.Listen(MaximumConnections);
+                _status.SetIpv6TcpState(binding.Ipv6State);
+            }
+            catch { listener?.Dispose(); _status.SetTcpState("Faulted"); _status.SetIpv6TcpState("Faulted"); throw; }
             var cancellation = new CancellationTokenSource();
             _listener = listener;
             _cancellation = cancellation;
@@ -51,19 +57,24 @@ public sealed class TcpDnsServer : IAsyncDisposable
         finally { _lifecycleGate.Release(); }
     }
 
-    private async Task AcceptLoopAsync(TcpListener listener, CancellationToken cancellationToken)
+    private async Task AcceptLoopAsync(Socket listener, CancellationToken cancellationToken)
     {
         try
         {
             while (!cancellationToken.IsCancellationRequested)
             {
-                var client = await listener.AcceptTcpClientAsync(cancellationToken).ConfigureAwait(false);
+                var accepted = await listener.AcceptAsync(cancellationToken).ConfigureAwait(false);
+                var client = new TcpClient(accepted.AddressFamily); client.Client.Dispose(); client.Client = accepted;
                 lock (_connectionsGate)
                 {
                     ReapCompletedConnections();
                     if (cancellationToken.IsCancellationRequested || _connections.Count >= MaximumConnections)
                     {
-                        if (!cancellationToken.IsCancellationRequested) _processor.Telemetry.RejectConnection();
+                        if (!cancellationToken.IsCancellationRequested)
+                        {
+                            _processor.Telemetry.RejectConnection();
+                            _processor.ObserveDevice(DnsRequestContext.From(DnsTransport.Tcp, (IPEndPoint)client.Client.RemoteEndPoint!, DateTimeOffset.UtcNow), "ConnectionRejected");
+                        }
                         client.Dispose();
                         if (!cancellationToken.IsCancellationRequested && Interlocked.Exchange(ref _limitReported, 1) == 0)
                             EngineLog.Warning("TCP DNS", "Connection limit reached; excess connections are closed");
@@ -79,10 +90,11 @@ public sealed class TcpDnsServer : IAsyncDisposable
         catch (Exception)
         {
             _status.SetTcpState("Faulted");
+            _status.SetIpv6TcpState("Faulted");
             EngineLog.Failure("TCP DNS", "Listener failed");
             throw; // EngineLifetime observes this task and shuts down the remaining components.
         }
-        finally { _status.SetTcpListening(false); }
+        finally { _status.SetTcpListening(false); _status.StopIpv6Tcp(); }
     }
 
     private void ReapCompletedConnections()
@@ -140,7 +152,7 @@ public sealed class TcpDnsServer : IAsyncDisposable
         {
             if (_listener == null) return;
             _cancellation!.Cancel();
-            _listener.Stop();
+            _listener.Dispose();
             lock (_connectionsGate)
                 foreach (var connection in _connections) connection.Key.Dispose();
             try { await _acceptLoop!.ConfigureAwait(false); }

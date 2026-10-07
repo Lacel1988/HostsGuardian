@@ -1,0 +1,39 @@
+{
+  "expected_commit": "93d1814f7af9b1a750cde2cc96ebef14aaca9152",
+  "workers": [
+    {
+      "id": "WindowsWorker",
+      "type": "local-windows",
+      "capabilities": [
+        "windows-git"
+      ]
+    },
+    {
+      "id": "LinuxWorker",
+      "type": "ssh-linux",
+      "alias": "your-linux-development-worker",
+      "capabilities": [
+        "linux-git"
+      ],
+      "connect_timeout": 10,
+      "probe_attempts": 3
+    }
+  ],
+  "repositories": [
+    {
+      "platform": "windows",
+      "capability": "windows-git",
+      "root": "C:/Projects/HostsGuardian",
+      "origin": "https://github.com/Lacel1988/HostsGuardian.git",
+      "branch": "master"
+    },
+    {
+      "platform": "linux",
+      "capability": "linux-git",
+      "root": "/home/developer/hostsguardian-dev/HostsGuardian",
+      "development_root": "/home/developer/hostsguardian-dev",
+      "origin": "https://github.com/Lacel1988/HostsGuardian.git",
+      "branch": ""
+    }
+  ]
+}

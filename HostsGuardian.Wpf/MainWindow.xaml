@@ -1,5 +1,6 @@
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:loc="clr-namespace:HostsGuardian.Wpf.Localization" xmlns:vm="clr-namespace:HostsGuardian.Wpf.ViewModels" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" x:Class="HostsGuardian.Wpf.MainWindow" Title="HostsGuardian" Width="1200" Height="760" WindowStartupLocation="CenterScreen" MinWidth="1000" MinHeight="640" ToolTipService.InitialShowDelay="2500" ToolTipService.BetweenShowDelay="0">
-    <Window.Resources><DataTemplate x:Key="LanguageLabelTemplate"><TextBlock Text="{Binding Name}" TextWrapping="NoWrap"/></DataTemplate>
+    <Window.Resources>
+        <DataTemplate x:Key="DeviceTypeLabelTemplate"><TextBlock Text="{Binding Label}"/></DataTemplate><DataTemplate x:Key="LanguageLabelTemplate"><TextBlock Text="{Binding Name}" TextWrapping="NoWrap"/></DataTemplate>
         <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
         <loc:OverrideLabelConverter x:Key="OverrideLabel" /><DataTemplate x:Key="OverrideLabelTemplate"><TextBlock><TextBlock.Text><MultiBinding Converter="{StaticResource OverrideLabel}"><Binding/><Binding Source="{x:Static loc:LocalizationService.Instance}" Path="Language"/></MultiBinding></TextBlock.Text></TextBlock></DataTemplate>
     </Window.Resources>
@@ -16,13 +17,14 @@
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
                 <WrapPanel Grid.Column="0" Grid.ColumnSpan="3" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,0,0"><TextBlock Text="HostsGuardian" FontSize="19" VerticalAlignment="Center" Margin="0,0,18,0" FontFamily="{StaticResource OrbitronFont}" Foreground="{StaticResource GreenBrush}" />
-                    <Button Content="{loc:Text S175}" Click="EngineSettings_Click" Margin="0,0,10,0" Padding="12,7" Style="{StaticResource SecondaryButton}" ToolTip="{loc:Text S176}" ToolTipService.InitialShowDelay="2500" ToolTipService.BetweenShowDelay="0" />
+                    <Button Content="{loc:Text Policy.Workspace}" Command="{Binding PolicyWorkspaceCommand}" AutomationProperties.AutomationId="PolicyWorkspace" Margin="0,0,10,0" Padding="12,7"/><Button Content="{loc:Text S175}" Click="EngineSettings_Click" Margin="0,0,10,0" Padding="12,7" Style="{StaticResource SecondaryButton}" ToolTip="{loc:Text S176}" ToolTipService.InitialShowDelay="2500" ToolTipService.BetweenShowDelay="0" />
+                    <Button Content="{loc:Text Product.Insights}" Command="{Binding ProductInsightsCommand}" AutomationProperties.AutomationId="ProductInsights" Margin="0,0,10,0" Padding="12,7"/>
                     <Button Content="{loc:Text S177}" Style="{StaticResource SecondaryButton}" Padding="12,7" Margin="0,0,10,0" Command="{Binding FlushDnsCommand}"  ToolTip="{loc:Text T.Flush}" ToolTipService.InitialShowDelay="2500" ToolTipService.BetweenShowDelay="0"/>
                     <StackPanel Orientation="Horizontal" VerticalAlignment="Center"><TextBlock Text="{loc:Text S178}" VerticalAlignment="Center" Margin="0,0,6,0"/><ComboBox x:Name="LanguageSelector" Width="100" ItemsSource="{Binding Languages}" ItemTemplate="{StaticResource LanguageLabelTemplate}" SelectedValuePath="Code" SelectedValue="{Binding SelectedLanguage, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="{loc:Text S179}"/><Button Content="{loc:Text S180}" Margin="10,0,6,0" Command="{Binding ToggleNotificationsCommand}"/><TextBlock Text="{Binding Notifications.UnreadCount}" VerticalAlignment="Center" Foreground="{StaticResource GreenBrush}"/></StackPanel>
                 </WrapPanel>
             </Grid>
         </Border>
-        <Border Grid.Row="1" Style="{StaticResource MatrixPanel}" Margin="0,0,0,8" Padding="10"><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBlock Text="{Binding EngineStatusText}" FontSize="12" ToolTip="{loc:Text T.Sync}"/><Expander Grid.Column="1" Header="{loc:Text S181}" Margin="18,0,0,0" MaxWidth="430"><ScrollViewer MaxHeight="300" VerticalScrollBarVisibility="Auto">                            <StackPanel>
+        <Border Grid.Row="1" Style="{StaticResource MatrixPanel}" Margin="0,0,0,8" Padding="10"><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBlock Text="{Binding EngineStatusText}" AutomationProperties.AutomationId="OperationalSummary" TextWrapping="Wrap" FontSize="12" ToolTip="{loc:Text T.Sync}"/><Expander AutomationProperties.AutomationId="StatusDetails" Grid.Column="1" Header="{loc:Text S181}" Margin="18,0,0,0" MaxWidth="430"><ScrollViewer MaxHeight="300" VerticalScrollBarVisibility="Auto">                            <StackPanel>
                                 <TextBlock Text="{loc:Text S182}" FontSize="14" Margin="0,0,0,10" Style="{StaticResource SectionHeading}" />
                                 <Grid>
                                     <Grid.RowDefinitions>
@@ -47,12 +49,12 @@
                                 </Grid>
                                 <WrapPanel Orientation="Horizontal" Margin="0,10,0,0">
                                     <Button Content="{loc:Text S187}" Style="{StaticResource SecondaryButton}" Padding="12,7" Margin="0,0,10,0" Command="{Binding DetectRouterCommand}" />
-                                    <Button Content="{loc:Text S188}" Style="{StaticResource SecondaryButton}" Padding="12,7" Command="{Binding PingEngineCommand}"  ToolTip="{loc:Text T.Check}" ToolTipService.InitialShowDelay="2500" ToolTipService.BetweenShowDelay="0"/>
+                                    <Button Content="{loc:Text S188}" Style="{StaticResource SecondaryButton}" Padding="12,7" AutomationProperties.AutomationId="CheckConnection" Command="{Binding PingEngineCommand}"  ToolTip="{loc:Text T.Check}" ToolTipService.InitialShowDelay="2500" ToolTipService.BetweenShowDelay="0"/>
                                 </WrapPanel>
                                 <TextBlock Text="{Binding EngineSafeModeText}" TextWrapping="Wrap" Margin="0,10,0,0" />
                                 <WrapPanel Margin="0,6,0,0">
-                                    <Button Content="{loc:Text S189}" Style="{StaticResource SecondaryButton}" Padding="8,7" Margin="0,0,6,6" Command="{Binding EnterEngineSafeModeCommand}"  ToolTip="{loc:Text T.SafeEnter}" ToolTipService.InitialShowDelay="2500" ToolTipService.BetweenShowDelay="0"/>
-                                    <Button Content="{loc:Text S190}" Style="{StaticResource SecondaryButton}" Padding="8,7" Margin="0,0,0,6" Command="{Binding ExitEngineSafeModeCommand}"  ToolTip="{loc:Text T.SafeExit}" ToolTipService.InitialShowDelay="2500" ToolTipService.BetweenShowDelay="0"/>
+                                    <Button Content="{loc:Text S189}" Style="{StaticResource SecondaryButton}" Padding="8,7" Margin="0,0,6,6" AutomationProperties.AutomationId="EnterSafeMode" Command="{Binding EnterEngineSafeModeCommand}"  ToolTip="{loc:Text T.SafeEnter}" ToolTipService.InitialShowDelay="2500" ToolTipService.BetweenShowDelay="0"/>
+                                    <Button Content="{loc:Text S190}" Style="{StaticResource SecondaryButton}" Padding="8,7" Margin="0,0,0,6" AutomationProperties.AutomationId="ExitSafeMode" Command="{Binding ExitEngineSafeModeCommand}"  ToolTip="{loc:Text T.SafeExit}" ToolTipService.InitialShowDelay="2500" ToolTipService.BetweenShowDelay="0"/>
                                 </WrapPanel>
                                 <TextBlock Text="{loc:Text S191}" Foreground="{StaticResource SubTextBrush}" TextWrapping="Wrap" />
                                 <Expander Header="{loc:Text S192}" Margin="0,8,0,0">
@@ -153,27 +155,36 @@
                             </TabItem>
                             <TabItem x:Name="DevicesTab" Header="{loc:Text S003}" IsSelected="{Binding IsDevicesVisible, Mode=TwoWay}">
                                 <Grid>
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="2*"/><ColumnDefinition Width="3*"/></Grid.ColumnDefinitions>
                                     <Grid.RowDefinitions>
-                                        <RowDefinition Height="Auto"/><RowDefinition Height="2*"/><RowDefinition Height="Auto"/><RowDefinition Height="3*"/><RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/><RowDefinition Height="3*"/><RowDefinition Height="0"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/>
                                     </Grid.RowDefinitions>
-                                    <WrapPanel Margin="0,6,0,8">
+                                    <WrapPanel Grid.ColumnSpan="2" Margin="0,6,0,8">
                                         <Button Content="{loc:Text S211}" Command="{Binding ScanDevicesCommand}" Margin="0,0,8,0"/>
-                                        <Button Content="{loc:Text S089}" Command="{Binding LoadFullPolicyCommand}" Margin="0,0,8,0" ToolTip="{loc:Text T.Read}" ToolTipService.InitialShowDelay="2500" ToolTipService.BetweenShowDelay="0"/>
+                                        <Button Content="{loc:Text S089}" Command="{Binding LoadFullPolicyCommand}" AutomationProperties.AutomationId="ReadEnginePolicy" Margin="0,0,8,0" ToolTip="{loc:Text T.Read}" ToolTipService.InitialShowDelay="2500" ToolTipService.BetweenShowDelay="0"/>
                                         <Button Content="{loc:Text S213}" Command="{Binding RegisterSelectedDeviceCommand}" Margin="0,0,8,0" ToolTip="{loc:Text T.Register}" ToolTipService.InitialShowDelay="2500" ToolTipService.BetweenShowDelay="0"/>
-                                        <Button Content="{loc:Text S215}" Command="{Binding SaveDevicesCommand}" ToolTip="{loc:Text T.Names}" ToolTipService.InitialShowDelay="2500" ToolTipService.BetweenShowDelay="0"/>
-<Expander Header="{loc:Text Device.Details}" Margin="8,0,0,0"><StackPanel><TextBlock Text="{Binding SelectedDeviceDiagnostics}" Style="{StaticResource HelperText}"/><TextBlock Text="{Binding EngineEffectivePolicyDiagnostics}" Style="{StaticResource HelperText}"/></StackPanel></Expander>
+                                        <Button Content="{loc:Text Inventory.Forget}" Command="{Binding ForgetSelectedDeviceCommand}" Margin="0,0,8,0"/>
                                     </WrapPanel>
-                                    <DataGrid MinHeight="80" Grid.Row="1" ItemsSource="{Binding DevicesView}" SelectedItem="{Binding SelectedDevice}" Style="{StaticResource MatrixDataGrid}"
-                                              AutoGenerateColumns="False" CanUserAddRows="False" EnableRowVirtualization="True" EnableColumnVirtualization="True">
-                                        <DataGrid.Columns>
-                                            <DataGridTextColumn Header="{loc:Text S217}" Binding="{Binding Name, UpdateSourceTrigger=PropertyChanged}" Width="*" MinWidth="130"/>
-                                            <DataGridTextColumn Header="{loc:Text S218}" Binding="{Binding Ip}" IsReadOnly="True" Width="125"/>
-                                            <DataGridTextColumn Header="{loc:Text S219}" Binding="{Binding Mac}" IsReadOnly="True" Width="158"/>
-                                            <DataGridTextColumn Header="{loc:Text S220}" Binding="{Binding ObservationState}" IsReadOnly="True" Width="*" MinWidth="180"/>
-                                        </DataGrid.Columns>
-                                    </DataGrid><TextBlock Grid.Row="1" Text="{loc:Text Empty.Devices}" TextAlignment="Center" VerticalAlignment="Center" Margin="25,40,25,20" IsHitTestVisible="False"><TextBlock.Style><Style TargetType="TextBlock" BasedOn="{StaticResource HelperText}"><Setter Property="Visibility" Value="Collapsed"/><Style.Triggers><DataTrigger Binding="{Binding DevicesView.IsEmpty}" Value="True"><Setter Property="Visibility" Value="Visible"/></DataTrigger></Style.Triggers></Style></TextBlock.Style></TextBlock>
-                                    <StackPanel Grid.Row="2"><TextBlock Grid.Row="2" FontWeight="SemiBold" Foreground="{StaticResource GreenBrush}" Text="{Binding SelectedDeviceSummary}" TextWrapping="Wrap" Margin="0,8"/></StackPanel>
-                                    <DataGrid MinHeight="100" Grid.Row="3" ItemsSource="{Binding DeviceDomainRules}" SelectedItem="{Binding SelectedDeviceDomain}" AutoGenerateColumns="False" CanUserAddRows="False"
+                                    <DockPanel Grid.Row="1">
+                                        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,6"><TextBlock Text="{loc:Text UX.Sources}"/><TextBlock Text="{Binding Devices.Count}" Margin="6,0"/></StackPanel>
+                                        <ListBox ItemsSource="{Binding DevicesView}" SelectedItem="{Binding SelectedDevice}" Background="#0B1510" Foreground="{StaticResource TextBrush}" BorderBrush="#244A37" ScrollViewer.VerticalScrollBarVisibility="Visible" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                                            <ListBox.ItemContainerStyle><Style TargetType="ListBoxItem"><Setter Property="HorizontalContentAlignment" Value="Stretch"/><Setter Property="Background" Value="Transparent"/><Setter Property="Foreground" Value="{StaticResource TextBrush}"/><Style.Triggers><Trigger Property="IsSelected" Value="True"><Setter Property="Background" Value="#214B35"/></Trigger></Style.Triggers></Style></ListBox.ItemContainerStyle><ListBox.ItemTemplate><DataTemplate><DockPanel Margin="4,6"><Viewbox DockPanel.Dock="Left" Width="28" Height="28" Margin="0,0,8,0" VerticalAlignment="Top"><Canvas Width="24" Height="24"><Path Data="{Binding IconPath}" Stroke="{StaticResource GreenBrush}" StrokeThickness="1.8" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"/></Canvas></Viewbox><StackPanel Width="300"><TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/><TextBlock Text="{Binding InventoryStateText}" Style="{StaticResource HelperText}"/><TextBlock Text="{Binding Ip}" Style="{StaticResource HelperText}" TextTrimming="CharacterEllipsis"/><TextBlock Text="{Binding TypeStateText}" Style="{StaticResource HelperText}" TextWrapping="Wrap"/></StackPanel></DockPanel></DataTemplate></ListBox.ItemTemplate>
+                                        </ListBox>
+                                    </DockPanel>
+                                    <ScrollViewer Grid.Row="1" Grid.Column="1" VerticalScrollBarVisibility="Visible" Margin="16,0,0,0">
+                                        <StackPanel>
+                                            <TextBlock Text="{Binding SelectedDevice.DisplayName}" FontWeight="SemiBold" FontSize="18" Foreground="{StaticResource GreenBrush}"/>
+                                            <TextBlock Text="{Binding SelectedDevice.IdentityStateText}" Style="{StaticResource HelperText}"/><TextBlock Text="{Binding SelectedDevice.TypeStateText}" Style="{StaticResource HelperText}"/>
+<TextBlock Text="{Binding DeviceWorkflowText}" Foreground="{Binding DeviceWorkflowBrush}" FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,8,0,4"/><TextBlock Text="{Binding DeviceNextStep}" Style="{StaticResource HelperText}" TextWrapping="Wrap"/><TextBlock Text="{loc:Text S217}" Style="{StaticResource HelperText}"/><TextBox Text="{Binding SelectedDevice.Name, UpdateSourceTrigger=PropertyChanged}" Margin="0,4"/><TextBlock Text="{loc:Text Type.Choice}"/><ComboBox ItemsSource="{Binding SelectedDevice.TypeChoices}" ItemTemplate="{StaticResource DeviceTypeLabelTemplate}" SelectedValuePath="Id" SelectedValue="{Binding SelectedDevice.SelectedTypeId, Mode=TwoWay}"/><WrapPanel Margin="0,6"><Button Content="{loc:Text S215}" Command="{Binding SaveDevicesCommand}" Margin="0,0,8,0" ToolTip="{loc:Text T.Names}" ToolTipService.InitialShowDelay="2500"/><Button Content="{loc:Text S226}" Command="{Binding PushDnsCommand}" ToolTip="{loc:Text T.Send}" ToolTipService.InitialShowDelay="2500"/></WrapPanel>
+                                            <StackPanel Margin="0,6">
+                                                <StackPanel Margin="0,0,12,0"><TextBlock Text="{loc:Text UX.Presence}" FontWeight="SemiBold"/><TextBlock Text="{Binding SelectedDevice.PresenceText}" Style="{StaticResource HelperText}" TextWrapping="Wrap"/></StackPanel>
+                                                <StackPanel Margin="0,0,12,0"><TextBlock Text="{loc:Text UX.Network}" FontWeight="SemiBold"/><TextBlock Text="{Binding SelectedDevice.NetworkText}" Style="{StaticResource HelperText}" TextWrapping="Wrap"/></StackPanel>
+                                                <StackPanel><TextBlock Text="{loc:Text UX.Dns}" FontWeight="SemiBold"/><TextBlock Text="{Binding SelectedDevice.DnsActivityText}" Style="{StaticResource HelperText}"/><TextBlock Text="{Binding SelectedDevice.CoverageText}" Style="{StaticResource HelperText}" TextWrapping="Wrap"/><TextBlock Text="{Binding SelectedDevice.CoverageWhy}" Style="{StaticResource HelperText}" TextWrapping="Wrap"/></StackPanel>
+                                            </StackPanel>
+                                            <Expander Header="{loc:Text Device.Details}"><StackPanel><TextBlock Text="{Binding SelectedDevice.TypeProvenance}" Style="{StaticResource HelperText}" TextWrapping="Wrap"/><TextBlock Text="{Binding SelectedDeviceSummary}" Style="{StaticResource HelperText}"/><TextBlock Text="{Binding SelectedDeviceDiagnostics}" Style="{StaticResource HelperText}" TextWrapping="Wrap"/><TextBlock Text="{Binding EngineEffectivePolicyDiagnostics}" Style="{StaticResource HelperText}" TextWrapping="Wrap"/></StackPanel></Expander>
+                                        </StackPanel>
+                                    </ScrollViewer>
+                                    <DataGrid MinHeight="100" Grid.Row="3" Grid.ColumnSpan="2" ItemsSource="{Binding DeviceDomainRules}" SelectedItem="{Binding SelectedDeviceDomain}" AutoGenerateColumns="False" CanUserAddRows="False"
                                               Style="{StaticResource MatrixDataGrid}" EnableRowVirtualization="True" EnableColumnVirtualization="True" VirtualizingPanel.VirtualizationMode="Recycling">
                                         <DataGrid.Columns>
                                             <DataGridTextColumn Header="{loc:Text S201}" Binding="{Binding Domain}" IsReadOnly="True" Width="*"/>
@@ -189,8 +200,8 @@
                                             <DataGridTextColumn Header="{loc:Text S224}" Binding="{Binding Indicator}" IsReadOnly="True" Width="130"/>
                                             <DataGridTextColumn Header="{loc:Text S225}" Binding="{Binding Effective}" IsReadOnly="True" Width="210"/>
                                         </DataGrid.Columns>
-                                    </DataGrid><TextBlock Grid.Row="3" Text="{loc:Text Empty.Rules}" TextAlignment="Center" VerticalAlignment="Center" Margin="25,40,25,20" IsHitTestVisible="False"><TextBlock.Style><Style TargetType="TextBlock" BasedOn="{StaticResource HelperText}"><Setter Property="Visibility" Value="Collapsed"/><Style.Triggers><DataTrigger Binding="{Binding DeviceDomainRules.Count}" Value="0"><Setter Property="Visibility" Value="Visible"/></DataTrigger></Style.Triggers></Style></TextBlock.Style></TextBlock>
-                                    <WrapPanel Grid.Row="4" Margin="0,8,0,0">
+                                    </DataGrid><TextBlock Grid.Row="3" Grid.ColumnSpan="2" Text="{loc:Text Empty.Rules}" TextAlignment="Center" VerticalAlignment="Center" Margin="25,40,25,20" IsHitTestVisible="False"><TextBlock.Style><Style TargetType="TextBlock" BasedOn="{StaticResource HelperText}"><Setter Property="Visibility" Value="Collapsed"/><Style.Triggers><DataTrigger Binding="{Binding DeviceDomainRules.Count}" Value="0"><Setter Property="Visibility" Value="Visible"/></DataTrigger></Style.Triggers></Style></TextBlock.Style></TextBlock>
+                                    <WrapPanel Grid.Row="4" Grid.ColumnSpan="2" Margin="0,8,0,0">
                                         <Button Content="{loc:Text S226}" Command="{Binding PushDnsCommand}" Margin="0,0,8,0" ToolTip="{loc:Text T.Send}" ToolTipService.InitialShowDelay="2500" ToolTipService.BetweenShowDelay="0"/>
                                         <Button Content="{loc:Text S227}" Command="{Binding ExplainSelectedPolicyCommand}" Margin="0,0,8,0" ToolTip="{loc:Text T.Effective}" ToolTipService.InitialShowDelay="2500" ToolTipService.BetweenShowDelay="0"/>
                                         <TextBlock Text="{Binding EngineEffectivePolicy}" TextWrapping="Wrap" MaxWidth="550"/>

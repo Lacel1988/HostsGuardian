@@ -35,9 +35,9 @@ Status must be no older than ten seconds, match systemd MainPID and have trusted
 regular-file type, safe permissions and no symlinks. The full file is bounded to 128 KiB.
 Untrusted or stale evidence does not appear as current health. Monitor has no policy editor,
 management credential access, certificate enrollment or networking controls. WPF Windows
-Control Center owns policy decisions. No browsing, website or device analytics are added.
+Control Center owns policy decisions. Device/source diagnostics consume bounded Engine aggregates and identity evidence; Monitor adds no independent identity store or raw-query history.
 
-Packaging 0.3.0+unified1 upgrades 0.2.0+diagnostics1 using the same executable, application
+The v0.4.0 package retains the historical 0.3.0+unified1 executable, application
 ID and desktop/autostart paths. Exactly one normal launcher and one normal autostart path
 remain. User-owned entries are never removed by scripts. The existing autostart conffile
 uses normal dpkg preservation semantics; a locally modified file requires human review
@@ -47,3 +47,17 @@ Run python3 -m unittest discover -v from this directory. GTK fixture tests requi
 PyGObject GTK4 and a graphical session; headless environments explicitly skip them.
 Fixtures never operate the real service. Real polkit/action acceptance is a later human
 checkpoint; production service transitions are not used for development screenshots.
+
+## v0.4.0 device diagnostics, topology and packaging
+
+Device lists and selected details separate identity, presence, DNS activity, coverage
+and provenance. The evidence-driven Topology page preserves Unknown access technology
+and uncertain relationships instead of inventing infrastructure. Registered identity
+comes from the Engine-committed WPF policy; Monitor cannot rename or register devices.
+
+The launcher and Debian rules require LF bytes. Package builds reject CRLF executable
+scripts and directly execute the actual extracted launcher with `--smoke-check` as an
+ordinary Linux user. This imports GTK, Cairo and Topology without constructing a window
+or controlling services. `python launcher` is not an acceptable shebang smoke test.
+Build with `python3 -B build_monitor_package.py --output /absolute/fresh/output --version 0.4.0`
+in an isolated ordinary-user Linux fixture. This builds only; it never installs.

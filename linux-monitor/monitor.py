@@ -5,6 +5,9 @@ import sys
 import math
 from diagnostics import LiveHistory, graph_scale, WINDOW_SECONDS
 from operations import overview, incident_rows, details_text, confirmation_text
+from device_diagnostics import DeviceAwareDiagnostics
+from topology_ui import TopologyView
+from device_diagnostics_ui import DeviceDiagnosticsView
 from concurrent.futures import ThreadPoolExecutor
 import gi
 
@@ -87,6 +90,10 @@ class Monitor(Gtk.Application):
             .degraded { color: #ffc878; }
             .critical { color: #ff7d83; font-weight: 800; }
             button { background: #17262c; color: #dce8e7; border-color: #30424a; }
+            .device-name { font-weight: bold; font-size: 14px; }
+            .device-list, .device-list row { background: #121e25; color: #d6e7ec; }
+            .device-list row:selected { background: #204b3b; }
+            .page-tabs button:checked { background: #22734a; color: #ffffff; border: 2px solid #70e0a0; font-weight: bold; }
             textview, textview text { background: #121e25; color: #adc3ca; }
         """)
         Gtk.StyleContext.add_provider_for_display(self.window.get_display(), css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
@@ -101,6 +108,10 @@ class Monitor(Gtk.Application):
         self.stack = Gtk.Stack(transition_type=Gtk.StackTransitionType.CROSSFADE)
         self.stack.set_vexpand(True)
         switcher = Gtk.StackSwitcher(stack=self.stack, halign=Gtk.Align.START)
+        switcher.add_css_class("page-tabs")
+        self.page_heading = self.label("OVERVIEW", "heading")
+        self.stack.connect("notify::visible-child-name", lambda stack,_: self.page_heading.set_text((stack.get_visible_child_name() or "overview").upper()))
+        layout.append(self.page_heading)
         layout.append(switcher)
         self.overview_page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
         hero = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
@@ -133,7 +144,7 @@ class Monitor(Gtk.Application):
         self.stack.add_titled(self.overview_page, "overview", "Overview")
         self.diagnostics_page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         self.grid = Gtk.Grid(column_spacing=16, row_spacing=16, column_homogeneous=True, row_homogeneous=True)
-        self.grid.set_vexpand(True)
+        self.grid.set_vexpand(False)
         activity = self.card("DNS ACTIVITY", 0, 0)
         self.rate_label = self.label("— queries / s", "metric")
         self.peak_label = self.label("Waiting for two samples", "muted")
@@ -160,7 +171,18 @@ class Monitor(Gtk.Application):
         self.component_label = self.label("", "caption"); self.component_label.set_wrap(True)
         for widget in (self.health_label, self.pressure_label, self.resource_label, self.component_label): pressure.append(widget)
         self.diagnostics_page.append(self.grid)
-        self.stack.add_titled(self.diagnostics_page, "diagnostics", "Diagnostics")
+        self.device_diagnostics = DeviceAwareDiagnostics()
+        self.device_view = DeviceDiagnosticsView()
+        device_link = Gtk.Button(label="Device-aware diagnostics — view all sources")
+        device_link.connect('clicked',lambda _:self.stack.set_visible_child_name('devices'))
+        self.diagnostics_page.append(device_link)
+        diagnostics_scroll = Gtk.ScrolledWindow(hexpand=True, vexpand=True)
+        diagnostics_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        diagnostics_scroll.set_child(self.diagnostics_page)
+        self.stack.add_titled(diagnostics_scroll, "diagnostics", "Diagnostics")
+        self.stack.add_titled(self.device_view, "devices", "Devices / DNS")
+        self.topology_view=TopologyView()
+        self.stack.add_titled(self.topology_view,"topology","TOPOLOGY")
         incidents = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         self.incident_note = self.label("Awaiting fresh incident evidence", "muted")
         self.incident_note.set_wrap(True); incidents.append(self.incident_note)
@@ -362,6 +384,10 @@ class Monitor(Gtk.Application):
             child = self.incident_box.get_first_child()
             while child:
                 following = child.get_next_sibling(); self.incident_box.remove(child); child = following
+        self.device_diagnostics.accept(self.history.current)
+        self.device_view.render(self.device_diagnostics)
+        self.topology_view.render(snapshot.get("topology") if snapshot and self.history.current else None)
+        self.topology_view.validator_health(snapshot.get('validator') if snapshot and self.history.current else None)
         self.render_diagnostics()
 
     def confirm(self, verb):

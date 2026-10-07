@@ -4,6 +4,7 @@ public sealed class EngineConfig
 {
     // Production DNS port for UDP and the planned TCP listener.
     public int DnsListenPort { get; set; } = 53;
+    public bool EnableIpv6Dns { get; set; } = true;
     public string UpstreamDnsIpv4 { get; set; } = "1.1.1.1";
     public int UpstreamDnsPort { get; set; } = 53;
     public string BlockedIpv4 { get; set; } = "0.0.0.0";

@@ -56,9 +56,15 @@ public sealed class DnsProxyServer : IAsyncDisposable
         {
             if (_listener != null) return;
             RuntimeStatus.SetUdpState("Starting");
-            var listener = new UdpClient(AddressFamily.InterNetwork);
-            try { listener.Client.Bind(new IPEndPoint(IPAddress.Any, _settings.DnsPort)); }
-            catch { listener.Dispose(); RuntimeStatus.SetUdpState("Faulted"); throw; }
+            UdpClient listener;
+            try
+            {
+                var binding = DnsListenerSocket.Bind(SocketType.Dgram, _settings.DnsPort, _settings.EnableIpv6Dns);
+                listener = new UdpClient(binding.Socket.AddressFamily);
+                listener.Client.Dispose(); listener.Client = binding.Socket;
+                RuntimeStatus.SetIpv6UdpState(binding.Ipv6State);
+            }
+            catch { RuntimeStatus.SetUdpState("Faulted"); RuntimeStatus.SetIpv6UdpState("Faulted"); throw; }
 
             var cancellation = new CancellationTokenSource();
             _listener = listener;
@@ -127,6 +133,7 @@ public sealed class DnsProxyServer : IAsyncDisposable
                 if (requests.Count >= _settings.MaxConcurrentUdpRequests)
                 {
                     Telemetry.Rejected(capacity: true);
+                    _processor.ObserveCapacityDrop(DnsRequestContext.From(DnsTransport.Udp, request.RemoteEndPoint, receivedAtUtc));
                     _log.Warning("DNS", "UDP capacity reached; newest datagram dropped");
                     continue;
                 }
@@ -136,11 +143,13 @@ public sealed class DnsProxyServer : IAsyncDisposable
         catch
         {
             RuntimeStatus.SetUdpState("Faulted");
+            RuntimeStatus.SetIpv6UdpState("Faulted");
             throw;
         }
         finally
         {
             RuntimeStatus.SetUdpListening(false);
+            RuntimeStatus.StopIpv6Udp();
             // Fatal receive errors also cancel children, before the lifetime observes listener failure.
             _cancellation?.Cancel();
             await Task.WhenAll(requests).ConfigureAwait(false);

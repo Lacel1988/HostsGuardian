@@ -21,6 +21,7 @@ namespace HostsGuardian.Core.Services
                 Level = string.IsNullOrWhiteSpace(level) ? "INFO" : level.Trim().ToUpperInvariant(),
                 Message = SecretRedactor.Clean(message)
             };
+            if (entry.Message.Length > 4096) entry.Message = entry.Message[..4096];
 
             var line = Serialize(entry);
 
@@ -28,6 +29,14 @@ namespace HostsGuardian.Core.Services
             {
                 Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(_path))!);
                 File.AppendAllText(_path, line + Environment.NewLine);
+                if (new FileInfo(_path).Length > 4194304)
+                {
+                    var retained = new Queue<string>();
+                    foreach (var old in File.ReadLines(_path)) { retained.Enqueue(old); if (retained.Count > 1000) retained.Dequeue(); }
+                    var temporary = _path + "." + Guid.NewGuid().ToString("N") + ".tmp";
+                    File.WriteAllLines(temporary, retained);
+                    File.Move(temporary, _path, true);
+                }
             }
         }
 
@@ -36,11 +45,10 @@ namespace HostsGuardian.Core.Services
             if (max <= 0) return new List<AuditLogEntry>();
             if (!File.Exists(_path)) return new List<AuditLogEntry>();
 
-            var lines = File.ReadAllLines(_path);
+            max = Math.Min(max, 10000);
+            var lines = new Queue<string>();
+            foreach (var line in File.ReadLines(_path)) { lines.Enqueue(line); if (lines.Count > max) lines.Dequeue(); }
             return lines
-                .Reverse()
-                .Take(max)
-                .Reverse()
                 .Select(TryParse)
                 .Where(x => x != null)
                 .Cast<AuditLogEntry>()

@@ -15,7 +15,13 @@ public partial class App : Application
             Activated += ReviewLanguages;
         }
 #endif
+        WindowsNotificationSink.Instance.Initialize();
+        if (e.Args.Contains("--notification-acceptance"))
+        {
+            NativeNotificationAcceptance.Start();
+        }
         base.OnStartup(e);
+        if (MainWindow == null && !e.Args.Contains("--notification-acceptance")) new MainWindow().Show();
     }
 #if DEBUG
     private void ReviewLanguages(object? sender, EventArgs e)

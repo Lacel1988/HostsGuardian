@@ -72,7 +72,7 @@ internal static class UxTests
         Check(desktop.Count == 1 && desktop.Message == "Engine unreachable", "Desktop abstraction lost localization/background routing");
         prefs.SetEnabled(NotificationCategory.NewDevices, false);
         center.Observe("unknown", true, NotificationCategory.NewDevices, NotificationSeverity.Warning, "Unknown device discovered", "", "Devices");
-        Check(center.Items.Count == 3, "Preference did not filter warning");
+        Check(center.Items.Count == 2, "Preference filtering or recent-condition reuse failed");
         prefs.SetEnabled(NotificationCategory.EngineDns, false);
         center.Observe("dns", true, NotificationCategory.EngineDns, NotificationSeverity.Critical, "DNS service failure", "", "Router");
         Check(center.HasCritical && desktop.Count == 1, "Preference concealed critical condition or ignored desktop filtering");
@@ -85,17 +85,42 @@ internal static class UxTests
         var config = new AppConfig();
         config.BlockedDomains.Add(new DomainEntry { Domain = "fixture.invalid", DnsBlocked = true, Notes = "Fixture" });
         config.DeviceDomainPolicy = FullDnsPolicy.Empty with
-        { Devices = System.Collections.Immutable.ImmutableArray.Create(new DeviceRegistration(deviceId, "Fixture laptop", "02:00:00:00:00:01", "fixture", "Isolated UX fixture")) };
+        { SchemaVersion=3,Program=PolicyProgram.Empty,Devices = System.Collections.Immutable.ImmutableArray.Create(new DeviceRegistration(deviceId, "Fixture laptop", "02:00:00:00:00:01", "fixture", "Isolated UX fixture"){Metadata=new("Fixture laptop","Fixture owner","Laptop","Fixture room")}) };
         configService.Save(config); var before = File.ReadAllBytes(configPath);
         var audit = new AuditLogService(Path.Combine(temporary, "audit.log"));
         audit.Write(new ActivityEvent("WPF user action", "Policy", "Removed domain: {0}", new[] { "fixture.invalid" }).Serialize());
         audit.Write("Historical raw warning", "WARN");
         audit.Write("Historical raw exception", "ERROR");
         var vm = new MainViewModel(configService, false, audit);
-        vm.Devices.Add(new DeviceVm(new NetworkDevice { Ip = "192.0.2.10", Mac = "02:00:00:00:00:01" }, "Fixture laptop", false) { DeviceId = deviceId, ObservedAtUtc = DateTimeOffset.UtcNow });
+        Check(vm.Devices.Single().DeviceId==deviceId && vm.Devices.Single().ConfirmedType=="Laptop" && vm.Devices.Single().LanObservation is null,"Startup failed to restore offline inventory/type from persistent registry");
+        Check(new ConfigService(configPath).Load().DeviceDomainPolicy.Devices.Single().Metadata!.Owner=="Fixture owner","Inventory metadata persistence lost owner");
+        Console.WriteLine("PASS WPF startup restores persisted offline registry and confirmed type without discovery");
+        var originalLog = vm.LogItems.ToArray();
+        vm.LogItems.Clear();
+        var anchor = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        vm.LogItems.Add(new ActivityItemVm(anchor, "WARN", "old"));
+        vm.LogItems.Add(new ActivityItemVm(anchor.AddMinutes(2), "WARN", "new"));
+        vm.LogItems.Add(new ActivityItemVm(anchor.AddMinutes(1), "INFO", "middle"));
+        Check(vm.LogView.Cast<ActivityItemVm>().Select(x => x.Message).SequenceEqual(new[] { "new", "middle", "old" }), "Log is not newest-first");
+        vm.SelectedLogLevel = "WARN";
+        Check(vm.LogView.Cast<ActivityItemVm>().Select(x => x.Message).SequenceEqual(new[] { "new", "old" }), "Severity filter lost newest-first order");
+        vm.LogItems.Add(new ActivityItemVm(anchor.AddMinutes(3), "WARN", "live"));
+        Check(vm.LogView.Cast<ActivityItemVm>().First().Message == "live", "New incoming entry not at top");
+        vm.SelectedLogLevel = "ALL";
+        Check(vm.LogView.Cast<ActivityItemVm>().Select(x => x.Message).SequenceEqual(new[] { "live", "new", "middle", "old" }), "Clearing filter lost newest-first order");
+        vm.LogItems.Clear();
+        foreach (var item in originalLog) vm.LogItems.Add(item);
+        Console.WriteLine("PASS newest-first Log order persists through severity filters and incoming entries");
+        vm.Devices.Clear();vm.Devices.Add(new DeviceVm(new NetworkDevice { Ip = "192.0.2.10", Mac = "02:00:00:00:00:01" }, "Fixture laptop", false) { DeviceId = deviceId, ObservedAtUtc = DateTimeOffset.UtcNow });
         vm.SelectedDevice = vm.Devices[0];
+        var observationTime=DateTimeOffset.UtcNow;
+        vm.Devices[0].LanObservation=new(Guid.NewGuid(),"SESSION / PROVISIONAL","OBSERVED",observationTime,observationTime,
+            [new("192.0.2.10","02:00:00:00:00:01","Observed fixture host","OBSERVED: isolated fixture",observationTime){NeighborState="STALE"}]);
+        for(var i=11;i<=22;i++)vm.Devices.Add(new DeviceVm(new NetworkDevice {Ip="2001:db8::"+i},null,false)
+            {LanObservation=new(Guid.NewGuid(),"SESSION / PROVISIONAL","OBSERVED",observationTime,observationTime,
+            [new("2001:db8::"+i,"","","OBSERVED: isolated fixture",observationTime){NeighborState="STALE"}])});
         Check(vm.Notifications.Items.Count == 0, "Initialization fabricated notification");
-        var app = new App(); app.InitializeComponent(); app.ShutdownMode = ShutdownMode.OnExplicitShutdown;
+        var app = new App { Resources = new ResourceDictionary { Source = new Uri("/HostsGuardian.Wpf;component/Styles/MatrixStyles.xaml", UriKind.Relative) }, ShutdownMode = ShutdownMode.OnExplicitShutdown };
         L.Instance.ChangeLanguage("hu", false);
         var consent = LocalizedDialogs.Create(null, "Select a public certificate only", "Explicit certificate trust", true);
         var consentButtons = ((DockPanel)consent.Content).Children.OfType<StackPanel>().Single().Children.OfType<Button>().ToArray();
@@ -107,6 +132,20 @@ internal static class UxTests
         var listener = new BindingErrors(); PresentationTraceSources.DataBindingSource.Listeners.Add(listener);
         var window = new MainWindow(vm) { Width = 1000, Height = 640 }; window.Show(); Pump(); window.UpdateLayout();
         var selector = (ComboBox)window.FindName("LanguageSelector");
+        var typeVm=new DeviceVm(new NetworkDevice{Ip="192.0.2.99"},null,false);
+        var typeCombo=new ComboBox{ItemsSource=typeVm.TypeChoices,SelectedValuePath="Id",ItemTemplate=(DataTemplate)window.Resources["DeviceTypeLabelTemplate"],Width=260};
+        var typeWindow=new Window{Content=typeCombo,Width=300,Height=100};typeWindow.Show();
+        foreach(var language in new[]{"en","hu","en"}){
+            L.Instance.ChangeLanguage(language,false);typeVm.Relocalize();typeCombo.SelectedValue="TV";Pump();typeWindow.UpdateLayout();
+            var label=typeVm.TypeChoices.Single(c=>c.Id=="TV").Label;
+            Check(Descendants(typeCombo).OfType<TextBlock>().Any(t=>t.Text==label),"Closed styled type selector omitted readable localized label");
+            Check(!Descendants(typeCombo).OfType<TextBlock>().Any(t=>t.Text.Contains("DeviceTypeChoiceVm")),"CLR name rendered in selector");
+            typeCombo.IsDropDownOpen=true;Pump();
+            var item=(ComboBoxItem)typeCombo.ItemContainerGenerator.ContainerFromItem(typeVm.TypeChoices.Single(c=>c.Id=="TV"));
+            Check(item!=null && Descendants(item).OfType<TextBlock>().Any(t=>t.Text==label),"Type popup omitted localized label");
+            typeCombo.IsDropDownOpen=false;
+        }
+        typeWindow.Close();Console.WriteLine("PASS actual styled type selector closed and popup labels switch EN/HU/EN without CLR names");
         var tabNames = new[] { "DomainsTab", "RouterTab", "DevicesTab", "LogTab" };
         foreach (var language in new[] { "en", "hu", "en", "hu" })
         {
@@ -131,7 +170,7 @@ internal static class UxTests
             }
             var controls = Descendants(window).OfType<Button>().Where(b => b.ToolTip != null).ToArray();
             Check(controls.Length >= 2 && controls.All(b => ToolTipService.GetInitialShowDelay(b) == 2500), "Intentional tooltip hover delay missing");
-            Check(controls.Any(b => b.ToolTip?.ToString() == L.T("Clears only this PC’s cached DNS answers.")), "Tooltip did not follow language switch");
+            Check(controls.Any(b => b.ToolTip?.ToString() == L.T("Clears only this PC’s cached DNS answers.")), "Tooltip did not follow language switch: " + language + " / expected=" + L.T("Clears only this PC’s cached DNS answers.") + " / actual=" + string.Join(" | ", controls.Select(b => b.ToolTip?.ToString())));
             var expectedLevels = language == "hu" ? new[] { "INFORMÁCIÓ", "FIGYELMEZTETÉS", "HIBA" } : new[] { "INFO", "WARN", "ERROR" };
             foreach (var item in vm.LogItems)
                 Check(item.DisplayLevel == expectedLevels[Array.IndexOf(new[] { "INFO", "WARN", "ERROR" }, item.Level)], "Severity display did not switch");
@@ -146,7 +185,7 @@ internal static class UxTests
                 Check(L.T("CHANGES NOT SENT") == "HELYI VÁLTOZÁSOK", "Local changes wording regressed");
             }
             window.Width = 1200; window.Height = 760;
-            foreach (var name in new[] { "RouterTab", "LogTab" })
+            foreach (var name in new[] { "RouterTab", "LogTab", "DevicesTab" })
             {
                 ((TabItem)window.FindName(name)).IsSelected = true; Pump(); window.UpdateLayout();
                 var grids = Descendants(window).OfType<DataGrid>();
@@ -206,6 +245,10 @@ internal static class UxTests
         var rejectedRow = rejected.DeviceDomainRules.Single(); rejectedRow.State = DeviceDomainRuleState.Block;
         Check(rejectedRow.State == DeviceDomainRuleState.Inherit && rejected.HasError && File.ReadAllBytes(configPath + ".saved").SequenceEqual(before), "Real rejected config save did not roll back");
         Check(rejected.Notifications.Items.Single().Title == L.T("Draft could not be saved"), "Local draft failure misrepresented Engine confirmation");
+        rejected.SelectedDevice!.Name="Rejected alias";rejected.SaveDevicesCommand.Execute(null);
+        var retainedConfig=(AppConfig)typeof(MainViewModel).GetField("_config",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(rejected)!;
+        Check(retainedConfig.DeviceDomainPolicy.Devices.Single().Name=="Fixture laptop" && File.ReadAllBytes(configPath+".saved").SequenceEqual(before),"Rejected identity save corrupted local accepted metadata");
+        Console.WriteLine("PASS rejected friendly-name draft persistence preserves previous identity metadata and policy bytes");
         rejected.Dispose();
         Console.WriteLine("PASS real rejected device rule persistence retains prior selection and source policy bytes");
         L.Instance.ChangeLanguage("en", false);

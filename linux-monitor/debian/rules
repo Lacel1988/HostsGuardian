@@ -4,3 +4,7 @@
 
 override_dh_auto_test:
 	python3 -m unittest discover -v
+
+override_dh_install:
+	dh_install
+	python3 build_monitor_package.py --verify-staging debian/hostsguardian-monitor

@@ -34,7 +34,7 @@ def overview(unit, snapshot, diagnostic=None):
         return result
     status = snapshot['status']
     components = {c['component']: c['state'] for c in diagnostic['components']} if diagnostic else {}
-    result['dns'] = f"UDP {status['udpState']} · TCP {status['tcpState']}"
+    result['dns'] = f"IPv4 UDP {status['udpState']} · TCP {status['tcpState']}\nIPv6 UDP {status.get('ipv6UdpState', 'Unknown')} · TCP {status.get('ipv6TcpState', 'Unknown')}"
     result['api'] = f"{status['managementState']} · {components.get('Management', 'health unmeasured')}"
     # Listener evidence is not an HTTPS reachability probe or a successful DNS query.
     result['upstream'] = upstream_state(status)
@@ -50,6 +50,10 @@ def overview(unit, snapshot, diagnostic=None):
         result['evidence'] = (f"{counts['received']:,} queries since start · {counts['allowed']:,} forwarded · "
                               f"{counts['policyBlocked']:,} policy blocked · {counts['failed']:,} failed. "
                               'Listener health does not prove end-to-end DNS. API state is Engine-reported.')
+    coverage=status.get('coverage', {})
+    coverage_state=coverage.get('state', 'UNKNOWN') if isinstance(coverage,dict) else 'UNKNOWN'
+    if coverage_state not in ('COMPLETE','PARTIAL','UNKNOWN'):coverage_state='UNKNOWN'
+    result['evidence'] += '\nDNS coverage: '+coverage_state+'. Router advertisements and client resolver selection are separate from Engine health.'
     return result
 
 
@@ -110,6 +114,9 @@ def details_text(unit, snapshot, diagnostic):
     if not snapshot:
         return '\n'.join(lines + ['Fresh Engine evidence unavailable.'])
     status = snapshot['status']
+    lines.append(f"Policy schema: {status.get('policySchemaVersion', 'unknown')} · Groups: {status.get('deviceGroupCount', 'unknown')} · Catalog: {status.get('serviceCatalogCount', 'unknown')} · Profiles: {status.get('profileCount', 'unknown')} · Schedules: {status.get('scheduleCount', 'unknown')}")
+    lines.append('Policy precedence: Device override > Active Profile/Schedule > Device Group > Global; same-layer Block wins.')
+    lines.append('Retention: raw DNS observations 15 min / 64 entries; product activity 24 h / 256 memory buckets; durable policy audit 1000 entries. Restart clears ephemeral activity. No policy/security bodies are published here.')
     lines += [f"Published: {snapshot['emittedAtUtc']} (freshness bound 10 s) · Engine start: {snapshot.get('startedAtUtc', 'unknown')}",
               f"DNS: UDP {status.get('dnsPort', '?')} / TCP {status.get('tcpTargetPort', '?')}",
               f"Management: HTTPS port {status.get('apiPort', '?')} · {status['managementState']}",

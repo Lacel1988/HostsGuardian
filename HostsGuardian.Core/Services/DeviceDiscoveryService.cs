@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
@@ -154,9 +154,10 @@ namespace HostsGuardian.Core.Services
             return list;
         }
 
-        private static string GuessVendor(string mac)
+        public static string GuessVendor(string mac)
         {
-            if (string.IsNullOrWhiteSpace(mac) || mac.Length < 8) return "";
+            mac=DevicePolicyIdentity.NormalizeMac(mac).Replace(':','-');
+            if(mac.Length<8 || (Convert.ToByte(mac.Substring(0,2),16)&2)!=0) return "";
             var oui = mac.Substring(0, 8); // "AA-BB-CC"
             return VendorByOui.TryGetValue(oui, out var v) ? v : "";
         }

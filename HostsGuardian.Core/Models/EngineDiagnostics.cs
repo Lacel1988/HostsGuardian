@@ -1,6 +1,6 @@
 namespace HostsGuardian.Core.Models;
 
-// Versioned, transport-neutral contracts. No domains, clients, credentials or policy bodies.
+// Versioned aggregate contracts. Optional device context has bounded counters/identity, never domains, credentials or policy bodies.
 public sealed record DnsCounters(long Received, long Udp, long Tcp, long Allowed, long PolicyBlocked,
     long Failed, long Rejected, long CapacityDropped, long Cancelled, long Servfail,
     long UpstreamAttempts, long UpstreamTimeouts, long UpstreamFailures, long UpstreamRetries,
@@ -21,4 +21,5 @@ public sealed record OperationalEventBatch(int SchemaVersion, string InstanceId,
 public sealed record EngineDiagnosticsSnapshot(int SchemaVersion, string InstanceId, DateTimeOffset SnapshotUtc,
     DnsCounters Counters, EnginePressure Pressure, LatencySummary UpstreamLatency,
     LatencySummary ProcessingLatency, ResolverDiagnostics[] Resolvers, EngineResources Resources,
-    string Health, HealthComponent[] Components);
+    string Health, HealthComponent[] Components)
+{ public DeviceDiagnosticsSnapshot? Devices { get; init; } }

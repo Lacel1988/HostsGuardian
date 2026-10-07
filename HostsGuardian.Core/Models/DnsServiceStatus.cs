@@ -4,6 +4,9 @@ namespace HostsGuardian.Core.Models;
 public sealed class DnsServiceStatus
 {
     public DateTimeOffset? SnapshotUtc { get; set; }
+    public string Ipv6UdpState { get; set; } = "Unknown";
+    public string Ipv6TcpState { get; set; } = "Unknown";
+    public DnsCoverage Coverage { get; set; } = new();
     public string UdpState { get; set; } = "NotStarted";
     public string TcpState { get; set; } = "NotStarted";
     public string ManagementState { get; set; } = "NotStarted";
@@ -24,6 +27,11 @@ public sealed class DnsServiceStatus
     public int ActiveRuleCount { get; set; }
     public int CommittedDeviceOverrideCount { get; set; }
     public int ActiveDeviceOverrideCount { get; set; }
+    public int? PolicySchemaVersion { get; set; }
+    public int DeviceGroupCount { get; set; }
+    public int ServiceCatalogCount { get; set; }
+    public int ProfileCount { get; set; }
+    public int ScheduleCount { get; set; }
     public bool FilteringEnabled { get; set; }
     public bool EmergencySafeMode { get; set; }
     public string SafeModeReason { get; set; } = "";

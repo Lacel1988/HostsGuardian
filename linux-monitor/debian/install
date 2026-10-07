@@ -2,6 +2,13 @@ monitor.py usr/lib/hostsguardian-monitor
 monitor_core.py usr/lib/hostsguardian-monitor
 diagnostics.py usr/lib/hostsguardian-monitor
 operations.py usr/lib/hostsguardian-monitor
+device_diagnostics.py usr/lib/hostsguardian-monitor
+device_diagnostics_ui.py usr/lib/hostsguardian-monitor
+device_types.py usr/lib/hostsguardian-monitor
+device-types.json usr/lib/hostsguardian-monitor
 packaging/hostsguardian-monitor usr/bin
 packaging/hostsguardian-monitor.desktop usr/share/applications
 packaging/hostsguardian-monitor.desktop etc/xdg/autostart
+
+topology.py usr/lib/hostsguardian-monitor
+topology_ui.py usr/lib/hostsguardian-monitor

@@ -15,6 +15,7 @@ public sealed class PolicyPersistence
     internal static readonly JsonSerializerOptions JsonOptions = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase, UnmappedMemberHandling = System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow };
     public const int MaximumFileBytes = 1024 * 1024;
     private readonly string _path;
+    internal string AuditPath => _path + ".audit.jsonl";
 
     public PolicyPersistence(string path)
     {
@@ -44,12 +45,12 @@ public sealed class PolicyPersistence
             foreach (var property in root.EnumerateObject())
                 if (!names.Add(property.Name)) return Invalid();
             if (!root.TryGetProperty("schemaVersion", out var versionValue) || !versionValue.TryGetInt32(out var version)) return Invalid();
-            if (version == 2)
+            if (version is 2 or 3)
             {
                 if (!names.SetEquals(new[] { "schemaVersion", "revision", "policy" }) ||
                     !root.GetProperty("revision").TryGetInt64(out var fullRevision) || fullRevision < 1) return Invalid();
                 var stored = root.GetProperty("policy").Deserialize<FullDnsPolicy>(JsonOptions);
-                if (stored == null) return Invalid();
+                if (stored == null || stored.SchemaVersion != version) return Invalid();
                 RejectDuplicateProperties(root.GetProperty("policy"));
                 var canonical = FullPolicyValidation.Canonicalize(stored);
                 if (JsonSerializer.Serialize(stored, JsonOptions) != JsonSerializer.Serialize(canonical, JsonOptions)) return Invalid();
@@ -95,7 +96,7 @@ public sealed class PolicyPersistence
         {
             var canonical = FullPolicyValidation.Canonicalize(full);
             if (!canonical.GlobalBlockedDomains.SequenceEqual(policy.Domains)) throw new ArgumentException("Incoherent policy");
-            bytes = JsonSerializer.SerializeToUtf8Bytes(new { schemaVersion = 2, revision = policy.Revision, policy = canonical }, JsonOptions);
+            bytes = JsonSerializer.SerializeToUtf8Bytes(new { schemaVersion = canonical.SchemaVersion, revision = policy.Revision, policy = canonical }, JsonOptions);
         }
         else bytes = JsonSerializer.SerializeToUtf8Bytes(new { schemaVersion = 1, revision = policy.Revision, domains = policy.Domains });
         if (bytes.Length > MaximumFileBytes) throw new ArgumentException("Policy exceeds storage limit");

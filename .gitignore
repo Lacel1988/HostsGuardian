@@ -443,3 +443,6 @@ FodyWeavers.xsd
 !/HostsGuardian.DnsEngine/.env.example
 !/HostsGuardian.DnsEngine/.env.sample
 !/HostsGuardian.DnsEngine/.env.template
+
+# Operator-owned development configuration; publish only the portable example.
+/development/orchestrator/hostsguardian.local.json

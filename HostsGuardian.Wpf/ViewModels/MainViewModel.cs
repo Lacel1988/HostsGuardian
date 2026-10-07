@@ -19,10 +19,16 @@ namespace HostsGuardian.Wpf.ViewModels
     public sealed class MainViewModel : ObservableObject
     {
         private System.Windows.Threading.DispatcherTimer? _statusTimer;
+        private readonly ProductOperationalFeed _operationalFeed = new();
+        private readonly ScheduleNotificationFeed _scheduleNotifications = new();
+        private bool _notificationPollingDisposed;
         private readonly bool _initializeNetwork;
         public NotificationCenter Notifications { get; }
         public LanguageChoice[] Languages { get; } = { new("en", "English"), new("hu", "Magyar") };
-        public sealed record LanguageChoice(string Code, string Name);
+        public sealed record LanguageChoice(string Code, string Name)
+        {
+            public override string ToString() => Name;
+        }
         public string SelectedLanguage
         {
             get => L.Instance.Language;
@@ -37,6 +43,33 @@ namespace HostsGuardian.Wpf.ViewModels
         private bool _notificationsOpen;
         public bool NotificationsOpen { get => _notificationsOpen; set => Set(ref _notificationsOpen, value); }
         public ICommand ToggleNotificationsCommand => new RelayCommand(() => NotificationsOpen = !NotificationsOpen);
+        public ICommand ProductInsightsCommand => new RelayCommand(() =>
+            new OperationsWorkspaceWindow(_dnsEngine, _config.DnsEngine, Notifications,
+                fresh => _engineStatus.Synchronization == "Confirmed" && fresh.Transport != null &&
+                    fresh.Transport.InstanceId == _engineStatus.Current?.InstanceId && fresh.Transport.PolicyRevision == _engineStatus.Current?.PolicyRevision) { Owner = Application.Current?.MainWindow }.ShowDialog());
+        public ICommand PolicyWorkspaceCommand => new RelayCommand(OpenPolicyWorkspace);
+        private void OpenPolicyWorkspace()
+        {
+            var current = PolicyCanonicalization.Canonicalize(_config.DeviceDomainPolicy with
+            { GlobalBlockedDomains = DomainPolicySelection.ForDns(_config.BlockedDomains).ToImmutableArray() });
+            var window = new PolicyWorkspaceWindow(current, candidate =>
+            {
+                var previous = _config.DeviceDomainPolicy; var previousDomains = _config.BlockedDomains;
+                var selected = candidate.GlobalBlockedDomains.ToHashSet(StringComparer.Ordinal);
+                var domains = previousDomains.Select(d => new DomainEntry
+                { Domain = d.Domain, Notes = d.Notes, DnsBlocked = selected.Contains(DomainName.Normalize(d.Domain)) }).ToList();
+                foreach (var name in selected.Where(name => !domains.Any(d => DomainName.Normalize(d.Domain) == name)))
+                    domains.Add(new DomainEntry { Domain = name, DnsBlocked = true });
+                _config.DeviceDomainPolicy = candidate; _config.BlockedDomains = domains;
+                try { _configService.Save(_config); }
+                catch { _config.DeviceDomainPolicy = previous; _config.BlockedDomains = previousDomains; throw; }
+                foreach (var domain in Domains) domain.PropertyChanged -= DomainPolicyChanged;
+                Domains.Clear(); foreach (var domain in domains) { Domains.Add(domain); domain.PropertyChanged += DomainPolicyChanged; }
+                _engineStatus.InvalidateSelection(); RefreshDeviceDetail(); UpdateDnsEngineStatusText();
+                SafeLog("Policy workspace local draft saved; no Engine delivery", "INFO");
+            }) { Owner = Application.Current?.MainWindow };
+            window.ShowDialog();
+        }
         public ICommand MarkNotificationsReadCommand => new RelayCommand(() => Notifications.MarkAllRead());
         public void OpenNotification(NotificationItem item)
         {
@@ -88,14 +121,14 @@ namespace HostsGuardian.Wpf.ViewModels
             foreach (var log in LogItems) log.Relocalize();
             OnPropertyChanged(string.Empty);
         }
-        public void Dispose() { _statusTimer?.Stop(); L.Instance.LanguageChanged -= LanguageChanged; }
+        public void Dispose() { foreach(var row in _identityRows) row.PropertyChanged -= IdentityEditChanged; _identityRows.Clear(); _statusTimer?.Stop(); _notificationPollingDisposed = true; _operationalFeed.Dispose(); L.Instance.LanguageChanged -= LanguageChanged; }
 
         // ===== Core services =====
         private readonly ConfigService _configService;
         private readonly AuditLogService _logService;
         private readonly StatusExportService _exportService = new();
         private readonly HostsGuardian.Core.Services.NetworkScanService _networkScan = new();
-        private readonly DnsEngineService _dnsEngine = new();
+        private readonly DnsEngineService _dnsEngine;
         private readonly EngineStatusPresentation _engineStatus = new();
         private bool _engineRequestPending;
         private int _engineSettingsGeneration;
@@ -514,6 +547,7 @@ namespace HostsGuardian.Wpf.ViewModels
         public ObservableCollection<DeviceVm> Devices { get; } = new();
         public ICollectionView DevicesView => CollectionViewSource.GetDefaultView(Devices);
 
+        private readonly HashSet<DeviceVm> _identityRows = new();
         private DeviceVm? _selectedDevice;
         public DeviceVm? SelectedDevice
         {
@@ -635,17 +669,21 @@ namespace HostsGuardian.Wpf.ViewModels
 
         public MainViewModel() : this(null, true) { }
 
-        public MainViewModel(ConfigService? configService, bool initialize, AuditLogService? auditLog = null)
+        public MainViewModel(ConfigService? configService, bool initialize, AuditLogService? auditLog = null, DnsEngineService? engineService = null)
         {
             _initializeNetwork = initialize;
+            _dnsEngine = engineService ?? new DnsEngineService();
             _configService = configService ?? new();
             _logService = auditLog ?? new();
             _config = _configService.Load();
-            Notifications = new NotificationCenter(foreground: () => Application.Current?.MainWindow?.IsActive ?? true);
+            Notifications = new NotificationCenter(desktop: initialize ? WindowsNotificationSink.Instance : null, foreground: () => Application.Current?.MainWindow?.IsActive ?? true,
+                journal: initialize ? new NotificationDeliveryJournal(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "HostsGuardian", "notification-delivery.json")) : null);
             L.Instance.LanguageChanged += LanguageChanged;
             _config.DevicePolicies ??= new();
             _config.DnsEngine ??= new DnsEngineConfig();
             _config.BlockedDomains ??= new System.Collections.Generic.List<DomainEntry>();
+            foreach(var device in DeviceInventoryView.Merge([], _config.DeviceDomainPolicy))Devices.Add(device);
 
             DnsEngineEnabled = _config.DnsEngine.Enabled;
             DnsEngineBaseUrl = _config.DnsEngine.BaseUrl ?? "";
@@ -659,6 +697,7 @@ namespace HostsGuardian.Wpf.ViewModels
 
             _logView = CollectionViewSource.GetDefaultView(LogItems);
             _logView.Filter = item => item is ActivityItemVm log && (SelectedLogLevel == "ALL" || log.Level == SelectedLogLevel);
+            _logView.SortDescriptions.Add(new SortDescription(nameof(ActivityItemVm.AtUtc), ListSortDirection.Descending));
             _routerCandidatesView = CollectionViewSource.GetDefaultView(RouterCandidates);
 
             // ===== NAV =====
@@ -686,6 +725,11 @@ namespace HostsGuardian.Wpf.ViewModels
             DetectRouterCommand = new RelayCommand(DetectRouter);
             RefreshNetworkSnapshotCommand = new RelayCommand(RefreshNetworkSnapshot);
             ScanDevicesCommand = new RelayCommand(ScanDevices);
+            Devices.CollectionChanged += (_, e) => {
+                foreach(var row in _identityRows.Where(row=>!Devices.Contains(row)).ToArray()) { row.PropertyChanged -= IdentityEditChanged; _identityRows.Remove(row); }
+                foreach(var row in Devices) if(_identityRows.Add(row)) row.PropertyChanged += IdentityEditChanged;
+                IdentityEditChanged(null,new PropertyChangedEventArgs("Name"));
+            };
             SaveDevicePoliciesCommand = new RelayCommand(SaveDevicePolicies);
 
             EnterEngineSafeModeCommand = new RelayCommand(EnterEngineSafeMode,
@@ -708,6 +752,7 @@ namespace HostsGuardian.Wpf.ViewModels
             LoadFullPolicyCommand = new RelayCommand(LoadFullPolicy);
             ExplainSelectedPolicyCommand = new RelayCommand(ExplainSelectedPolicy);
             RegisterSelectedDeviceCommand = new RelayCommand(RegisterSelectedDevice);
+            ForgetSelectedDeviceCommand = new RelayCommand(ForgetSelectedDevice);
 
             OpenRouterUiCommand = new RelayCommand(OpenRouterUi);
 
@@ -730,6 +775,15 @@ namespace HostsGuardian.Wpf.ViewModels
             _statusTimer = new System.Windows.Threading.DispatcherTimer
             { Interval = TimeSpan.FromSeconds(5) };
             _statusTimer.Tick += (_, _) => UpdateDnsEngineStatusText();
+            _operationalFeed.Start(async () =>
+            {
+                if (_engineStatus.LastConfirmed == null) return;
+                var generation = _engineSettingsGeneration;
+                await _operationalFeed.PollAsync(_dnsEngine, _config.DnsEngine, Notifications, () => generation == _engineSettingsGeneration);
+                if (!_notificationPollingDisposed) await _scheduleNotifications.PollAsync(_dnsEngine, _config.DnsEngine, Notifications,
+                    () => !_notificationPollingDisposed && generation == _engineSettingsGeneration);
+                if (!_notificationPollingDisposed) Notifications.FlushDesktop();
+            });
             _statusTimer.Start();
             Application.Current.Exit += (_, _) => Dispose();
             }
@@ -1059,23 +1113,44 @@ namespace HostsGuardian.Wpf.ViewModels
             {
                 LastError = "";
 
-                Devices.Clear();
                 DevicesHint = L.T("Scanning...");
 
+                var engineEvidence=await _dnsEngine.ReadIdentityEvidenceAsync(_config.DnsEngine,refresh:true);
+                var lanDiscovery=await _dnsEngine.ReadLanDiscoveryAsync(_config.DnsEngine);
+                var draftLan=DeviceIdentityProjection.Apply(lanDiscovery,_config.DeviceDomainPolicy);
                 await System.Threading.Tasks.Task.Run(() =>
                 {
                     // FONTOS: ez best-effort scan, nem nyúl a routerhez
-                    var results = _networkScan.ScanLanBestEffort(maxHostsToProbe: 196, timeoutMs: 200);
+                    var results = _networkScan.ScanLanBestEffort(maxHostsToProbe: 254, timeoutMs: 200);
 
+                    foreach(var evidence in engineEvidence.Evidence ?? [])
+                    {
+                        var row=results.FirstOrDefault(r=>r.Ip==evidence.Address);
+                        if(row==null) { row=new DeviceInfo {Ip=evidence.Address}; results.Add(row); }
+                        var scanMac=DevicePolicyIdentity.NormalizeMac(row.Mac);
+                        if(scanMac!="" && evidence.Mac!="" && scanMac!=DevicePolicyIdentity.NormalizeMac(evidence.Mac)) continue;
+                        if(row.Mac=="") row.Mac=evidence.Mac;
+                        if(row.Hostname=="") row.Hostname=evidence.Hostname;
+                    }
                     var policies = _config.DevicePolicies ?? new();
+                    // One selectable row per independent observation, including multiple IPv4/IPv6 evidence entries.
+                    foreach(var lan in draftLan)
+                    {
+                        var addresses=lan.Evidence.Select(e=>e.Address).ToHashSet(StringComparer.Ordinal);
+                        var existing=results.FirstOrDefault(r=>addresses.Contains(r.Ip));
+                        var primary=lan.Evidence.FirstOrDefault(e=>System.Net.IPAddress.TryParse(e.Address,out var address) && address.AddressFamily==System.Net.Sockets.AddressFamily.InterNetwork) ?? lan.Evidence[0];
+                        results.RemoveAll(r=>addresses.Contains(r.Ip));
+                        results.Add(new DeviceInfo {Ip=primary.Address,Mac=primary.Mac,Hostname=lan.Identity?.ObservedHostname ?? existing?.Hostname ?? ""});
+                    }
 
                     var vms = results
                         .OrderBy(x => x.Ip, StringComparer.OrdinalIgnoreCase)
                         .Select(dev =>
                         {
-                            var p = DevicePolicyIdentity.Find(policies, dev.Mac);
-                            var name = p?.Name;
-                            var blocked = p?.IsBlocked ?? false;
+                            var observation=draftLan.FirstOrDefault(d=>d.Evidence.Any(e=>e.Address==dev.Ip));
+                            var registration=observation?.Identity?.DeviceId is {} registeredId ? _config.DeviceDomainPolicy.Devices.FirstOrDefault(d=>d.DeviceId==registeredId) : null;
+                            var name=registration==null?null:DeviceIdentityProjection.FriendlyName(registration);
+                            var blocked = false;
 
                             // --- KONVERTÁLÁS NetworkDevice-re ---
                             var nd = new NetworkDevice
@@ -1083,28 +1158,30 @@ namespace HostsGuardian.Wpf.ViewModels
                                 Ip = dev.Ip ?? "",
                                 Mac = dev.Mac ?? "",
                                 Hostname = dev.Hostname ?? "",
-                                VendorHint = "" // ha később lesz OUI lookup, ide jön
+                                VendorHint = DeviceDiscoveryService.GuessVendor(dev.Mac),
+                                Notes = PassiveIdentityEvidence.Read().Any(e=>e.Address==dev.Ip) ? "LocalOsEvidence" :
+                                    (Uri.TryCreate(_config.DnsEngine.BaseUrl,UriKind.Absolute,out var endpoint) && endpoint.Host==dev.Ip ? "EngineEndpointEvidence" : ""),
+                                IdentityEvidence = engineEvidence.Evidence?.FirstOrDefault(e=>e.Address==dev.Ip)?.Provenance ??
+                                    (PassiveIdentityEvidence.Read().Any(e=>e.Address==dev.Ip) ? "OBSERVED: local OS adapter and hostname" : "OBSERVED: scan / reverse DNS; type suggestions are INFERRED")
                             };
 
                             var mac = DevicePolicyIdentity.NormalizeMac(nd.Mac);
-                            var registered = _config.DeviceDomainPolicy.Devices.Where(d => d.Mac == mac && mac != "").ToArray();
-                            return new DeviceVm(nd, registered.Length == 1 ? registered[0].Name : name, blocked)
-                            { DeviceId = registered.Length == 1 ? registered[0].DeviceId : null, ObservedAtUtc = DateTimeOffset.UtcNow };
+                            return new DeviceVm(nd, name, blocked)
+                            { DeviceId = registration?.DeviceId, ObservedAtUtc = DateTimeOffset.UtcNow,
+                                LanObservation=observation,ConfirmedType=registration?.Metadata?.Type ?? "" };
                         })
                         .ToList();
 
                     Application.Current.Dispatcher.Invoke(() =>
                     {
+                        var inventory=DeviceInventoryView.Merge(vms,_config.DeviceDomainPolicy,Devices);
                         Devices.Clear();
-                        foreach (var vm in vms) Devices.Add(vm);
-                        foreach (var registered in _config.DeviceDomainPolicy.Devices)
-                            if (!Devices.Any(d => d.DeviceId == registered.DeviceId))
-                                Devices.Add(new DeviceVm(new NetworkDevice { Mac = registered.Mac ?? "" }, registered.Name, false) { DeviceId = registered.DeviceId });
+                        foreach (var vm in inventory) Devices.Add(vm);
 
                         foreach (var unknown in vms)
-                            Notifications.Observe("unknown." + (unknown.Mac == "" ? unknown.Ip : unknown.Mac), unknown.DeviceId == null, NotificationCategory.NewDevices,
-                                NotificationSeverity.Warning, "Unknown device discovered", "A scan found a device without a registered identity. Review Devices before assigning policy.", "Devices");
-                        DevicesHint = L.F("{0} recently observed device(s); Engine address binding requires explicit review.", Devices.Count);
+                            Notifications.Observe(ObservationNotificationKey.Create(unknown.Mac,unknown.Ip), unknown.DeviceId == null, NotificationCategory.NewDevices,
+                                NotificationSeverity.Warning, "Unrecognized network observation detected", "A scan found a device without a registered identity. Review Devices before assigning policy.", "Devices");
+                        DevicesHint = L.F("Inventory.Count",Devices.Count(d=>d.DeviceId!=null),Devices.Count(d=>d.DeviceId==null));
                         OnPropertyChanged(nameof(DevicesSummaryText));
                     });
                 });
@@ -1120,20 +1197,58 @@ namespace HostsGuardian.Wpf.ViewModels
 
         private void SaveDevicePolicies()
         {
+            var previous=_config.DeviceDomainPolicy;
+            var stale=Devices.Where(d=>d.DeviceId!=null && !previous.Devices.Any(r=>r.DeviceId==d.DeviceId)).ToArray();
+            if(stale.Length>0)
+            {
+                foreach(var row in stale)row.ClearOrphanedRegistration(previous);
+                LastError=L.T("Inventory.OrphanRecovered");RefreshDeviceDetail();return;
+            }
             try
             {
                 foreach (var device in Devices.Where(d => d.DeviceId != null))
-                    _config.DeviceDomainPolicy = _config.DeviceDomainPolicy with
-                    { Devices = _config.DeviceDomainPolicy.Devices.Select(d => d.DeviceId == device.DeviceId ? d with { Name = device.DisplayName } : d).ToImmutableArray() };
+                {
+                    var policy=_config.DeviceDomainPolicy;
+                    if(device.TypeEdited)policy=policy with {SchemaVersion=3,Program=policy.Program ?? PolicyProgram.Empty};
+                    _config.DeviceDomainPolicy=policy with {Devices=policy.Devices.Select(d=>
+                    {
+                        if(d.DeviceId!=device.DeviceId)return d;
+                        var renamed=DeviceIdentityProjection.Rename(d,device.Name==""?d.Name:device.Name);
+                        return device.TypeEdited?DeviceIdentityProjection.ConfirmType(renamed,device.TypeToSave):renamed;
+                    }).ToImmutableArray()};
+                }
                 _config.DeviceDomainPolicy = PolicyCanonicalization.Canonicalize(_config.DeviceDomainPolicy);
                 _configService.Save(_config);
                 LastError = ""; ObserveDraftSaveFailure(false);
+                foreach(var device in Devices.Where(d=>d.DeviceId!=null))device.ApplyRegistration(_config.DeviceDomainPolicy.Devices.Single(d=>d.DeviceId==device.DeviceId),_config.DeviceDomainPolicy);
                 SafeLog(L.T("Registered device names saved to local draft; Engine policy unchanged"), "INFO");
                 _engineStatus.InvalidateSelection(); UpdateDnsEngineStatusText(); RefreshDeviceDetail();
             }
-            catch (Exception exception) { ObserveDraftSaveFailure(true); Fail(L.T("Saving device policy failed"), exception); }
+            catch (Exception exception) { _config.DeviceDomainPolicy=previous; ObserveDraftSaveFailure(true); Fail(L.T("Saving device policy failed"), exception); }
         }
 
+        private void IdentityEditChanged(object? sender, PropertyChangedEventArgs e)
+        {
+            if(e.PropertyName is "Name" or "SelectedTypeId" or "IsRegistered") {
+                OnPropertyChanged(nameof(DeviceWorkflowText));OnPropertyChanged(nameof(DeviceWorkflowBrush));OnPropertyChanged(nameof(DeviceNextStep));
+            }
+        }
+        private bool _deviceDeliveryFailed;
+        public bool HasUnsavedIdentityEdits => Devices.Any(d => d.IsRegistered &&
+            (_config.DeviceDomainPolicy.Devices.FirstOrDefault(r => r.DeviceId == d.DeviceId) is {} registration &&
+             (d.TypeEdited || d.Name.Trim() != DeviceIdentityProjection.FriendlyName(registration).Trim())));
+        public bool HasUnsynchronizedDevicePolicy => _fullPolicyBaseline == null ? _config.DeviceDomainPolicy.Devices.Length > 0 :
+            PolicyBackup.Export(_config.DeviceDomainPolicy) != PolicyBackup.Export(_fullPolicyBaseline.Policy);
+        public string DeviceWorkflowState => HasUnsavedIdentityEdits ? "Editing" :
+            _engineRequestPending ? "Pending" : _deviceDeliveryFailed || _engineStatus.PolicyStatus == "FAILED" ? "Failed" :
+            _engineStatus.Management == "UNREACHABLE" ? "Unavailable" :
+            HasUnsynchronizedDevicePolicy ? "Saved" : _engineStatus.PolicyStatus == "SYNCHRONIZED" ? "Confirmed" : "Unknown";
+        public string DeviceWorkflowText => L.T("DeviceFlow." + DeviceWorkflowState);
+        public Brush DeviceWorkflowBrush => new SolidColorBrush((Color)ColorConverter.ConvertFromString(DeviceWorkflowState switch
+        { "Confirmed" => "#65D68A", "Editing" or "Saved" or "Pending" => "#E9BC65", "Failed" => "#EF7777", _ => "#A3ACAA" }));
+        public string DeviceNextStep => L.T(SelectedDevice is null ? "DeviceFlow.Select" : !SelectedDevice.IsRegistered ? "DeviceFlow.Register" :
+            HasUnsavedIdentityEdits ? "DeviceFlow.Save" : _fullPolicyBaseline is null ? "DeviceFlow.Baseline" :
+            HasUnsynchronizedDevicePolicy ? "DeviceFlow.Send" : "DeviceFlow.Review");
         private FullPolicyRead? _fullPolicyBaseline;
         public ICommand LoadFullPolicyCommand { get; }
         public ICommand ExplainSelectedPolicyCommand { get; }
@@ -1148,7 +1263,8 @@ namespace HostsGuardian.Wpf.ViewModels
         public string EngineEffectivePolicyDiagnostics => HasCurrentExplanation ?
             L.F("Engine effective policy: {0}; {1}; identity {2}; DeviceId {3}; mapping generation {4}; policy revision {5}",
                 L.T(_lastExplanation!.Blocked ? "BLOCK" : "ALLOW"), _lastExplanation.Reason, _lastExplanation.IdentityState,
-                _lastExplanation.DeviceId?.ToString() ?? L.T("unknown"), _lastExplanation.MappingGeneration, _lastExplanation.Revision) : EngineEffectivePolicy;
+                _lastExplanation.DeviceId?.ToString() ?? L.T("unknown"), _lastExplanation.MappingGeneration, _lastExplanation.Revision)
+                + (_lastExplanation.DecisionChain.IsDefaultOrEmpty ? "" : Environment.NewLine + DecisionEvidencePresentation.Format(_lastExplanation.DecisionChain)) : EngineEffectivePolicy;
         private async void ExplainSelectedPolicy()
         {
             if (_engineRequestPending || SelectedDevice == null || SelectedDeviceDomain == null) return;
@@ -1173,20 +1289,37 @@ namespace HostsGuardian.Wpf.ViewModels
             finally { _engineRequestPending = false; OnPropertyChanged(nameof(EngineEffectivePolicy)); OnPropertyChanged(nameof(EngineEffectivePolicyDiagnostics)); }
         }
         public ICommand RegisterSelectedDeviceCommand { get; }
+        public ICommand ForgetSelectedDeviceCommand {get;}
+        private void ForgetSelectedDevice()
+        {
+            if(SelectedDevice?.DeviceId is not Guid id)return;
+            if(!LocalizedDialogs.Confirm(Application.Current?.MainWindow,L.T("Inventory.ForgetImpact"),L.T("Inventory.Forget")))return;
+            var previous=_config.DeviceDomainPolicy;
+            try
+            {
+                _config.DeviceDomainPolicy=DeviceInventory.Forget(previous,id);_configService.Save(_config);
+                var selected=SelectedDevice;Devices.Remove(selected!);SelectedDevice=null;
+                _engineStatus.InvalidateSelection();UpdateDnsEngineStatusText();
+                SafeLog(L.T("Inventory.Forgotten"),"INFO");
+            }
+            catch { _config.DeviceDomainPolicy=previous;LastError=L.T("Inventory.ForgetFailed"); }
+        }
         public ObservableCollection<DeviceDomainRuleVm> DeviceDomainRules { get; } = new();
         public Array OverrideStates => Enum.GetValues(typeof(DeviceDomainRuleState));
         public string SelectedDeviceSummary => SelectedDevice == null ? L.T("Select a device to review its policy.") :
             L.F("{0} · IP: {1} · MAC: {2}\n{3} device rules in the local draft; Engine address mapping is not verified.", SelectedDevice.DisplayName,
                 SelectedDevice.Ip == "" ? L.T("unknown") : SelectedDevice.Ip, SelectedDevice.Mac == "" ? L.T("unknown") : SelectedDevice.Mac,
                 _config.DeviceDomainPolicy.Overrides.Count(o => o.DeviceId == SelectedDevice.DeviceId && o.State != DeviceDomainRuleState.Inherit));
-        public string SelectedDeviceDiagnostics => SelectedDevice?.IdentitySummary + "\n" + SelectedDevice?.LegacyPreference;
+        public string SelectedDeviceLanSummary => SelectedDevice?.LanSummary ?? L.T("Independent LAN evidence unavailable; DNS coverage unknown.");
+        public string SelectedDeviceDiagnostics => SelectedDevice?.IdentitySummary + "\n" + SelectedDevice?.LanSummary + "\n" + SelectedDevice?.LegacyPreference;
 
         private void RefreshDeviceDetail()
         {
             DeviceDomainRules.Clear();
             _effectiveObservedUtc = null;
             OnPropertyChanged(nameof(EngineEffectivePolicy)); OnPropertyChanged(nameof(EngineEffectivePolicyDiagnostics));
-            OnPropertyChanged(nameof(SelectedDeviceSummary)); OnPropertyChanged(nameof(SelectedDeviceDiagnostics));
+            OnPropertyChanged(nameof(SelectedDeviceSummary)); OnPropertyChanged(nameof(SelectedDeviceDiagnostics)); OnPropertyChanged(nameof(SelectedDeviceLanSummary));
+            OnPropertyChanged(nameof(DeviceNextStep));
             if (SelectedDevice?.DeviceId is not Guid id) return;
             var names = Domains.Select(d => DomainName.Normalize(d.Domain)).Concat(_config.DeviceDomainPolicy.Overrides.Where(o => o.DeviceId == id).Select(o => o.Domain))
                 .Where(d => d != "").Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal);
@@ -1216,6 +1349,12 @@ namespace HostsGuardian.Wpf.ViewModels
 
         private string DraftEffective(Guid id, string domain, DeviceDomainRuleState value)
         {
+            if (_config.DeviceDomainPolicy.SchemaVersion == 3)
+            {
+                var draft = _config.DeviceDomainPolicy with { GlobalBlockedDomains = DomainPolicySelection.ForDns(_config.BlockedDomains).ToImmutableArray() };
+                var decision = PolicyDecision.Explain(draft, id, domain, DateTimeOffset.UtcNow);
+                return L.F("Draft decision: {0}; winning layer: {1}", L.T(decision.Winner.State.ToString()), DecisionEvidencePresentation.Layer(decision.Winner.Layer));
+            }
             var selected = _config.DeviceDomainPolicy.Overrides.Where(o => o.DeviceId == id &&
                 (domain == o.Domain || domain.EndsWith("." + o.Domain, StringComparison.Ordinal))).OrderByDescending(o => o.Domain.Length).FirstOrDefault();
             var state = selected?.State ?? value;
@@ -1226,17 +1365,24 @@ namespace HostsGuardian.Wpf.ViewModels
 
         private void RegisterSelectedDevice()
         {
-            if (SelectedDevice is not { } device || device.DeviceId != null) return;
+            if (SelectedDevice is not { } device) return;
+            device.ClearOrphanedRegistration(_config.DeviceDomainPolicy);
+            if(device.DeviceId is Guid existing && _config.DeviceDomainPolicy.Devices.FirstOrDefault(d=>d.DeviceId==existing) is {} member)
+            { if(!device.IsRegistered)device.ApplyRegistration(member,_config.DeviceDomainPolicy);return; }
             var mac = DevicePolicyIdentity.NormalizeMac(device.Mac);
             if (mac == "" || Devices.Count(d => DevicePolicyIdentity.NormalizeMac(d.Mac) == mac) != 1 ||
                 _config.DeviceDomainPolicy.Devices.Any(d => d.Mac == mac) ||
                 _config.DevicePolicies.Count(d => DevicePolicyIdentity.NormalizeMac(d.Mac) == mac) > 1)
             { LastError = L.T("A unique observed MAC is required; ambiguous and IP-only entries need review."); return; }
             var id = Guid.NewGuid();
+            if (!LocalizedDialogs.Confirm(Application.Current?.MainWindow,L.T("Register this observed device in the local draft? MAC evidence may change or be reused; this does not verify DNS bindings or deliver policy."),L.T("Register device identity"))) return;
             var previous = _config.DeviceDomainPolicy;
-            _config.DeviceDomainPolicy = previous with { Devices = previous.Devices.Add(new(id, device.DisplayName, mac, "windows-lan", "Explicit WPF registration from best-effort scan")) };
-            try { _configService.Save(_config); device.DeviceId = id;
-                Notifications.Observe("unknown." + (device.Mac == "" ? device.Ip : device.Mac), false, NotificationCategory.NewDevices,
+            var registration=new DeviceRegistration(id,device.DisplayName,mac,"windows-lan","Explicit WPF registration from best-effort scan");
+            if(device.TypeEdited)registration=DeviceIdentityProjection.ConfirmType(registration,device.TypeToSave);
+            _config.DeviceDomainPolicy = previous with {SchemaVersion=device.TypeEdited?3:previous.SchemaVersion,
+                Program=device.TypeEdited?previous.Program ?? PolicyProgram.Empty:previous.Program,Devices=previous.Devices.Add(registration)};
+            try { _config.DeviceDomainPolicy=PolicyCanonicalization.Canonicalize(_config.DeviceDomainPolicy); _configService.Save(_config); device.ApplyRegistration(_config.DeviceDomainPolicy.Devices.Single(d=>d.DeviceId==id),_config.DeviceDomainPolicy);
+                Notifications.Observe(ObservationNotificationKey.Create(device.Mac,device.Ip), false, NotificationCategory.NewDevices,
                     NotificationSeverity.Warning, "", "", "Devices");
                 _engineStatus.InvalidateSelection(); RefreshDeviceDetail(); UpdateDnsEngineStatusText(); }
             catch { _config.DeviceDomainPolicy = previous; LastError = L.T("Device registration was not saved."); }
@@ -1245,7 +1391,7 @@ namespace HostsGuardian.Wpf.ViewModels
         private async void LoadFullPolicy()
         {
             if (_engineRequestPending) return;
-            if (!LocalizedDialogs.Confirm(Application.Current?.MainWindow, L.T("Import Engine device policy and replace local device overrides? Local global domain choices are kept."),
+            if (!LocalizedDialogs.Confirm(Application.Current?.MainWindow, L.T(HasUnsavedIdentityEdits || HasUnsynchronizedDevicePolicy ? "DeviceFlow.ImportWarning" : "Import Engine device policy and program definitions? Local global domain choices are kept."),
                 L.T("Read Engine device policy"))) return;
             _engineRequestPending = true; LastError = "";
             var generation = _engineSettingsGeneration;
@@ -1255,13 +1401,25 @@ namespace HostsGuardian.Wpf.ViewModels
                 if (generation != _engineSettingsGeneration) return;
                 ObserveConnection(read.Connection);
                 if (!read.Connection.Ok || read.Policy == null) { LastError = L.T(read.Connection.Message); ObservePolicyFailure(true); return; }
-                _fullPolicyBaseline = read.Policy;
-                // Read imports device policy only; local domain selections remain an explicit draft.
+                // Import is local only, and persistence must succeed before accepting a new baseline.
+                var previous = _config.DeviceDomainPolicy;
                 _config.DeviceDomainPolicy = PolicyCanonicalization.Canonicalize(read.Policy.Policy);
-                _configService.Save(_config);
-                foreach (var registered in _config.DeviceDomainPolicy.Devices)
-                    if (!Devices.Any(d => d.DeviceId == registered.DeviceId))
-                        Devices.Add(new DeviceVm(new NetworkDevice { Mac = registered.Mac ?? "" }, registered.Name, false) { DeviceId = registered.DeviceId });
+                try { _configService.Save(_config); }
+                catch { _config.DeviceDomainPolicy = previous; throw; }
+                _fullPolicyBaseline = read.Policy;
+                _deviceDeliveryFailed=false;
+                var fresh = await _dnsEngine.TestConnectionAsync(_config.DnsEngine);
+                if (generation != _engineSettingsGeneration) return;
+                var selected = PolicyCanonicalization.Canonicalize(_config.DeviceDomainPolicy with
+                { GlobalBlockedDomains = DomainPolicySelection.ForDns(_config.BlockedDomains).ToImmutableArray() });
+                var matching = fresh.Transport?.InstanceId == read.Policy.InstanceId && fresh.Transport?.PolicyRevision == read.Policy.Revision &&
+                    PolicyBackup.Export(selected) == PolicyBackup.Export(read.Policy.Policy);
+                _engineStatus.Complete(fresh, matching ? read.Policy.Revision : null);
+                ObserveConnection(fresh);
+                var selectedDevice=SelectedDevice;
+                var reconciled=DeviceInventoryView.Merge(Devices,_config.DeviceDomainPolicy,Devices);
+                Devices.Clear();foreach(var row in reconciled)Devices.Add(row);
+                SelectedDevice=selectedDevice is not null && Devices.Contains(selectedDevice)?selectedDevice:Devices.FirstOrDefault();
                 RefreshDeviceDetail();
             }
             catch { LastError = L.T("Full policy could not be read; local draft not synchronized."); ObservePolicyFailure(true); }
@@ -1272,9 +1430,12 @@ namespace HostsGuardian.Wpf.ViewModels
 
         private void UpdateDnsEngineStatusText()
         {
+            foreach(var device in Devices)device.RefreshTypePresentation();
+            OnPropertyChanged(nameof(DeviceWorkflowText));OnPropertyChanged(nameof(DeviceWorkflowBrush));OnPropertyChanged(nameof(DeviceNextStep));
             DnsEngineStatusText = L.F("Engine: {0} · Management: {1} · DNS: {2} · Filtering: {3} · Policy: {4} · Upstream: {5}",
                 L.T(_engineStatus.EngineHost), L.T(_engineStatus.Management), L.T(_engineStatus.DnsService),
-                L.T(_engineStatus.Filtering), L.T(_engineStatus.PolicyStatus), L.T(_engineStatus.Upstream));
+                L.T(_engineStatus.Filtering), L.T(_engineStatus.PolicyStatus), L.T(_engineStatus.Upstream)) +
+                "\n" + L.T("DNS coverage") + ": " + L.T(_engineStatus.Coverage) + " · " + L.T(_engineStatus.CoverageGuidance);
             OnPropertyChanged(nameof(EngineEffectivePolicy)); OnPropertyChanged(nameof(EngineEffectivePolicyDiagnostics));
             OnPropertyChanged(nameof(EngineSafeModeText));
             OnPropertyChanged(nameof(EngineStatusDetailsText));
@@ -1301,6 +1462,9 @@ namespace HostsGuardian.Wpf.ViewModels
         private async Task ChangeEngineSafeModeAsync(bool enabled)
         {
             if (_engineRequestPending || !(enabled ? _engineStatus.CanEnterSafeMode : _engineStatus.CanExitSafeMode)) return;
+            if (!LocalizedDialogs.Confirm(Application.Current?.MainWindow,
+                L.T(enabled ? "Temporarily bypass DNS filtering? Committed rules will be preserved." : "Restore filtering using the committed policy?"),
+                L.T(enabled ? "Enter Safe Mode" : "Exit Safe Mode"))) return;
             _engineRequestPending = true; LastError = "";
             var generation = _engineSettingsGeneration;
             _engineStatus.BeginRequest();
@@ -1361,6 +1525,7 @@ namespace HostsGuardian.Wpf.ViewModels
         private async void PushDnsRules()
         {
             if (_engineRequestPending) return;
+            if (HasUnsavedIdentityEdits) { LastError=L.T("DeviceFlow.SaveFirst"); return; }
             _engineRequestPending = true; LastError = "";
             var generation = _engineSettingsGeneration;
             _engineStatus.BeginRequest();
@@ -1380,6 +1545,7 @@ namespace HostsGuardian.Wpf.ViewModels
                 _engineStatus.Complete(confirmation.Connection,
                     confirmation.Confirmed && selectionUnchanged ? confirmation.Readback?.Revision : null);
                 ObserveConnection(confirmation.Connection);
+                _deviceDeliveryFailed=!confirmation.Confirmed;
                 ObservePolicyFailure(!confirmation.Confirmed);
                 if (confirmation.Confirmed && confirmation.Readback != null) _fullPolicyBaseline = confirmation.Readback;
                 if (!confirmation.Confirmed) LastError = L.T("Push rules: ") + L.T(confirmation.Connection.Message);
@@ -1391,6 +1557,7 @@ namespace HostsGuardian.Wpf.ViewModels
                 if (generation == _engineSettingsGeneration)
                 {
                     _engineStatus.Complete(new(ConnectionState.EngineError, L.T("Policy request failed")));
+                    _deviceDeliveryFailed=true;
                     LastError = L.T("DNS policy request failed; synchronization unknown");
                     ObservePolicyFailure(true);
                 }

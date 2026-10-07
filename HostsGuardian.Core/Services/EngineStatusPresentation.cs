@@ -34,7 +34,10 @@ public sealed class EngineStatusPresentation
         ConnectionState.Unreachable or ConnectionState.Timeout => "UNREACHABLE",
         _ => "UNKNOWN"
     };
-    public string DnsService => Current is { } status ?
+    public string Coverage => Current?.Coverage.State is "COMPLETE" or "PARTIAL" or "UNKNOWN" ? Current.Coverage.State : "UNKNOWN";
+    public string CoverageGuidance => Coverage == "COMPLETE" ? "Assessed DNS paths use HostsGuardian; encrypted DNS is not guaranteed." :
+        "DNS coverage is not fully confirmed. Check router IPv4/IPv6 DNS advertisements and client resolver settings.";
+    public string DnsService => Current is { Ipv6UdpState: "Faulted" } or { Ipv6TcpState: "Faulted" } ? "DEGRADED" : Current is { } status ?
         status.UdpListening && status.TcpListening ? "RUNNING" :
         status.UdpListening || status.TcpListening ? "DEGRADED" : "DOWN" : "UNKNOWN";
     public string PolicyStatus => Pending ? "PENDING" : _selectionChanged ? "CHANGES NOT SENT" :
@@ -96,6 +99,10 @@ public sealed class EngineStatusPresentation
             "Historical failure does not establish a current outage.\n" +
             $"Last observed request used fallback: {(status.LastUpstreamOutcome == "NotObserved" ? "Not observed" : status.LastUpstreamRequestUsedFallback.ToString())}\n" +
             $"Last fallback use UTC: {Time(status.LastFallbackUseUtc)}; fallback configured: {status.FallbackConfigured}\n" +
+            $"IPv4 UDP/TCP: {status.UdpState}/{status.TcpState}; IPv6 UDP/TCP: {status.Ipv6UdpState}/{status.Ipv6TcpState}\n" +
+            $"DNS coverage: {Coverage}; IPv4 advertisement: {status.Coverage.Ipv4Advertisement}; IPv6 advertisement: {status.Coverage.Ipv6Advertisement}\n" +
+            $"Engine-host cached IPv6 resolvers: {string.Join(", ", status.Coverage.HostCachedIpv6Resolvers)}\n" +
+            status.Coverage.HostEvidence + "\n" +
             $"Runtime: {status.RuntimeState}; management: {status.ManagementState}; UDP: {status.UdpState}; TCP: {status.TcpState}";
     }
 

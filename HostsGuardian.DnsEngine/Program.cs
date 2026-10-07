@@ -40,12 +40,21 @@ try
     var rules = new RuleStore(Guid.NewGuid().ToString("N")[..8]);
     await using var dns = new DnsProxyServer(rules, settings);
     var policy = new PolicyApplicationService(rules, new PolicyPersistence(settings.PolicyFilePath), dns.PolicyState);
-    await using var api = new ApiServer(policy, settings, dns.RuntimeStatus, dns.RequestProcessor.Bindings, dns.RequestProcessor.Observations);
+    await using var api = new ApiServer(policy, settings, dns.RuntimeStatus, dns.RequestProcessor.Bindings, dns.RequestProcessor.Observations, dns.RequestProcessor.Activity);
     var monitorPath = Environment.GetEnvironmentVariable("HOSTSGUARDIAN_MONITOR_STATUS_FILE");
-    var monitor = monitorPath == null ? null : new LocalMonitorStatusPublisher(dns.RuntimeStatus, monitorPath);
+    var bindingProducer=new ValidatedBindingProducer(dns.RequestProcessor.Bindings,
+        ()=>dns.PolicyState.GetSnapshot().Policy ?? HostsGuardian.Core.Models.FullDnsPolicy.Empty,
+        HostsGuardian.Core.Services.PassiveIdentityEvidence.ReadBindingEvidence);
+    var validatorSocket=Environment.GetEnvironmentVariable("HOSTSGUARDIAN_VALIDATOR_SOCKET");
+    var activeEnabled=Environment.GetEnvironmentVariable("HOSTSGUARDIAN_ACTIVE_VALIDATION")=="1";
+    var activeProducer=string.IsNullOrEmpty(validatorSocket)?null:new ActiveBindingProducer(dns.RequestProcessor.Bindings,
+        ()=>dns.PolicyState.GetSnapshot().Policy ?? HostsGuardian.Core.Models.FullDnsPolicy.Empty,
+        HostsGuardian.Core.Services.PassiveIdentityEvidence.ReadBindingEvidence,new NetworkValidatorClient(validatorSocket),activeValidationEnabled:activeEnabled);
+    var monitor = monitorPath == null ? null : new LocalMonitorStatusPublisher(dns.RuntimeStatus, monitorPath,()=>dns.PolicyState.GetSnapshot().Policy ?? HostsGuardian.Core.Models.FullDnsPolicy.Empty,()=>dns.RequestProcessor.Bindings.Read(),activeProducer is null?null:()=>activeProducer.Health);
     var monitoring = monitor?.RunAsync(shutdown.Token) ?? Task.CompletedTask;
+    var bindingRefresh=Task.Run(()=>activeProducer is null?bindingProducer.RunAsync(shutdown.Token):activeEnabled?activeProducer.RunAsync(shutdown.Token):Task.WhenAll(bindingProducer.RunAsync(shutdown.Token),activeProducer.RunAsync(shutdown.Token)));
     try { return await new EngineLifetime(api, dns).RunAsync(shutdown.Token); }
-    finally { shutdown.Cancel(); await monitoring; }
+    finally { shutdown.Cancel(); await monitoring; await bindingRefresh; }
 }
 catch (Exception)
 {
