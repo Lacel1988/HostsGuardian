@@ -7,6 +7,7 @@ public interface IEndpointValidator
 {
     Task<EndpointValidationResult?> ValidateAsync(EndpointValidationRequest request,CancellationToken cancellation);
     Task<bool> ProbeAsync(CancellationToken cancellation)=>Task.FromResult(true);
+    Task<PassiveDnsL2Read?> ReadPassiveDnsAsync(string requestId,CancellationToken cancellation)=>Task.FromResult<PassiveDnsL2Read?>(null);
     string FailureReason=>"Validator unavailable";
 }
 
@@ -18,9 +19,11 @@ public sealed class NetworkValidatorClient(string path,IValidatorEndpointTrust? 
     public string FailureReason=>Volatile.Read(ref _failure);
     private static readonly JsonSerializerOptions Json=new(){PropertyNamingPolicy=JsonNamingPolicy.CamelCase};
     public async Task<EndpointValidationResult?> ValidateAsync(EndpointValidationRequest request,CancellationToken cancellation)
-        =>await ExchangeAsync(request,cancellation) as EndpointValidationResult;
-    public async Task<bool> ProbeAsync(CancellationToken cancellation)=>await ExchangeAsync(null,cancellation) is true;
-    private async Task<object?> ExchangeAsync(EndpointValidationRequest? request,CancellationToken cancellation)
+        =>await ExchangeAsync<EndpointValidationResult>(request,cancellation) as EndpointValidationResult;
+    public async Task<PassiveDnsL2Read?> ReadPassiveDnsAsync(string requestId,CancellationToken cancellation)
+        =>await ExchangeAsync<PassiveDnsL2Read>(new {requestId,operation="passiveDnsRead"},cancellation) as PassiveDnsL2Read;
+    public async Task<bool> ProbeAsync(CancellationToken cancellation)=>await ExchangeAsync<EndpointValidationResult>(null,cancellation) is true;
+    private async Task<object?> ExchangeAsync<T>(object? request,CancellationToken cancellation)
     {
         using var deadline=CancellationTokenSource.CreateLinkedTokenSource(cancellation);deadline.CancelAfter(TimeSpan.FromSeconds(3));
         try
@@ -42,7 +45,7 @@ public sealed class NetworkValidatorClient(string path,IValidatorEndpointTrust? 
             var bytes=JsonSerializer.SerializeToUtf8Bytes(request,Json);
             if(bytes.Length>1023)return null;
             await stream.WriteAsync(bytes,deadline.Token);await stream.WriteAsync(new byte[]{10},deadline.Token);
-            var response=new byte[4096];var count=0;
+            var response=new byte[32768];var count=0;
             while(count<response.Length)
             {
                 var read=await stream.ReadAsync(response.AsMemory(count,1),deadline.Token);
@@ -50,7 +53,7 @@ public sealed class NetworkValidatorClient(string path,IValidatorEndpointTrust? 
                 if(response[count++]==10)break;
             }
             if(count==response.Length || response[count-1]!=10)return null;
-            return JsonSerializer.Deserialize<EndpointValidationResult>(response.AsSpan(0,count-1),Json);
+            return JsonSerializer.Deserialize<T>(response.AsSpan(0,count-1),Json);
         }
         catch(Exception e) when(e is SocketException or IOException or JsonException or OperationCanceledException or ArgumentException or DllNotFoundException or EntryPointNotFoundException)
         {Volatile.Write(ref _failure,e is OperationCanceledException?"Validator readiness/exchange timeout":"Validator endpoint unavailable or untrusted: "+e.GetType().Name);return null;}

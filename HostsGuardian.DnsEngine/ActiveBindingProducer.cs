@@ -8,7 +8,7 @@ namespace HostsGuardian.DnsEngine;
 /// <summary>Bounded active-evidence cache. Publication is immutable; DNS only reads the store.</summary>
 public sealed class ActiveBindingProducer(AddressBindingStore store,Func<FullDnsPolicy> policy,
     Func<BindingEvidenceRead> evidence,IEndpointValidator validator,Func<DateTimeOffset>? clock=null,bool activeValidationEnabled=false,
-    ActiveValidationScope? scope=null,Action? passiveFallback=null)
+    ActiveValidationScope? scope=null,Action? passiveFallback=null,Func<CancellationToken,Task>? passiveRefresh=null)
 {
     private ValidatorHealth _health=new("UNKNOWN","Not checked",false,DateTimeOffset.MinValue);
     public ValidatorHealth Health=>Volatile.Read(ref _health);
@@ -41,10 +41,10 @@ public sealed class ActiveBindingProducer(AddressBindingStore store,Func<FullDns
     public async Task RefreshAsync(CancellationToken cancellation)
     {
         scope?.ValidateRegistry(policy());
-        if(!Active)Passive();
+        if(!Active && passiveRefresh is null)Passive();
         var ready=await validator.ProbeAsync(cancellation);
         UpdateHealth(ready);
-        if(!Active){Passive();return;} // Health-only never sends ARP.
+        if(!Active){if(passiveRefresh is not null)await passiveRefresh(cancellation);else Passive();return;} // Receive-only IPC never sends ARP.
         var now=Now;var current=policy();BindingEvidenceRead read;
         try{read=evidence();}catch{read=new(now,false,[]);}
         var candidates=read.Complete && read.Evidence.Length<64 && read.ReadAtUtc<=now && now-read.ReadAtUtc<TimeSpan.FromSeconds(20) ? read.Evidence.GroupBy(e=>e.Address)

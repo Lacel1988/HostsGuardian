@@ -225,6 +225,7 @@ try
         Check(!(await new DnsCacheFlushService(_ => throw new System.ComponentModel.Win32Exception()).FlushAsync()).Success, "Start failure reported success");
     });
     await ValidatedBindingTests.Run(Test, AsyncTest, fixtureRoot);
+    await PassiveDnsL2Tests.Run(Test, AsyncTest, fixtureRoot);
     await NetworkTopologyTests.Run(Test,AsyncTest);
     IntegratedPolicyTests.Run(Test, fixtureRoot);
     RoadmapPolicyTests.Run(Test, fixtureRoot);

@@ -54,13 +54,20 @@ try
         Environment.GetEnvironmentVariable("HOSTSGUARDIAN_ACTIVE_VALIDATION_DEVICE_IDS"),
         Environment.GetEnvironmentVariable("HOSTSGUARDIAN_ACTIVE_VALIDATION_SECONDS"),
         dns.PolicyState.GetSnapshot().Policy ?? HostsGuardian.Core.Models.FullDnsPolicy.Empty);
+    var validatorClient=string.IsNullOrEmpty(validatorSocket)?null:new NetworkValidatorClient(validatorSocket);
+    var passiveL2Enabled=Environment.GetEnvironmentVariable("HOSTSGUARDIAN_PASSIVE_DNS_L2")=="1";
+    var passiveL2=validatorClient is null?null:new PassiveDnsL2BindingProducer(dns.RequestProcessor.Bindings,
+        ()=>dns.PolicyState.GetSnapshot().Policy ?? HostsGuardian.Core.Models.FullDnsPolicy.Empty,
+        HostsGuardian.Core.Services.PassiveIdentityEvidence.ReadBindingEvidence,validatorClient,maximumEvidenceAge:evidenceAge);
+    if(passiveL2Enabled && passiveL2 is null)EngineLog.Failure("Binding","Passive L2 requested without trusted validator; bindings disabled");
     var activeProducer=string.IsNullOrEmpty(validatorSocket)?null:new ActiveBindingProducer(dns.RequestProcessor.Bindings,
         ()=>dns.PolicyState.GetSnapshot().Policy ?? HostsGuardian.Core.Models.FullDnsPolicy.Empty,
-        HostsGuardian.Core.Services.PassiveIdentityEvidence.ReadBindingEvidence,new NetworkValidatorClient(validatorSocket),activeValidationEnabled:true,
-        scope:activeScope,passiveFallback:bindingProducer.Refresh);
-    var monitor = monitorPath == null ? null : new LocalMonitorStatusPublisher(dns.RuntimeStatus, monitorPath,()=>dns.PolicyState.GetSnapshot().Policy ?? HostsGuardian.Core.Models.FullDnsPolicy.Empty,()=>dns.RequestProcessor.Bindings.Read(),activeProducer is null?null:()=>activeProducer.Health);
+        HostsGuardian.Core.Services.PassiveIdentityEvidence.ReadBindingEvidence,validatorClient!,activeValidationEnabled:true,
+        scope:activeScope,passiveFallback:passiveL2Enabled?()=>dns.RequestProcessor.Bindings.PublishObserved([]):bindingProducer.Refresh,
+        passiveRefresh:passiveL2Enabled?passiveL2!.RefreshAsync:null);
+    var monitor = monitorPath == null ? null : new LocalMonitorStatusPublisher(dns.RuntimeStatus, monitorPath,()=>dns.PolicyState.GetSnapshot().Policy ?? HostsGuardian.Core.Models.FullDnsPolicy.Empty,()=>dns.RequestProcessor.Bindings.Read(),activeProducer is null?null:()=>activeProducer.Health with{PassiveDnsL2State=passiveL2Enabled?passiveL2!.State:"Disabled",PassiveDnsL2Reason=passiveL2Enabled?passiveL2!.Reason:"Receive-only evidence not enabled"});
     var monitoring = monitor?.RunAsync(shutdown.Token) ?? Task.CompletedTask;
-    var bindingRefresh=Task.Run(()=>activeProducer is null?bindingProducer.RunAsync(shutdown.Token):activeProducer.RunAsync(shutdown.Token));
+    var bindingRefresh=Task.Run(()=>activeProducer is null?(passiveL2Enabled?Task.CompletedTask:bindingProducer.RunAsync(shutdown.Token)):activeProducer.RunAsync(shutdown.Token));
     try { return await new EngineLifetime(api, dns).RunAsync(shutdown.Token); }
     finally { shutdown.Cancel(); await monitoring; await bindingRefresh; }
 }

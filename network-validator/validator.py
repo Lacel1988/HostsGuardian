@@ -102,6 +102,130 @@ class ArpTransport:
         return ('Confirmed', list(answers), 'Targeted ARP reply; unauthenticated network claim', observed) if answers else ('Timeout', [], 'No valid reply; absence not established')
 
 
+# Passive evidence is a bounded observation, not authenticated physical identity.
+PASSIVE_TTL = 10
+PASSIVE_LIMIT = 64
+
+
+def checksum(data):
+    if len(data) % 2: data += b'\x00'
+    total = sum(struct.unpack('!' + 'H' * (len(data)//2), data))
+    while total >> 16: total = (total & 65535) + (total >> 16)
+    return (~total) & 65535
+
+
+def passive_dns_claim(frame, peer, interface, state):
+    # AF_PACKET exposes incoming Ethernet headers without promiscuous mode.
+    # Never accept outbound/other-host frames, fragments, VLAN guesses or proxies.
+    if len(peer) < 4 or peer[0] != interface or peer[2] != 0 or peer[3] != 1 or not 54 <= len(frame) <= MAX_FRAME:
+        return None
+    local, prefix, local_mac, _ = state
+    source_mac = frame[6:12]
+    if frame[:6] != local_mac or frame[12:14] != b'\x08\x00' or source_mac == local_mac or source_mac == bytes(6) or source_mac[0] & 1:
+        return None
+    ip = frame[14:]
+    if ip[0] != 0x45 or checksum(ip[:20]) != 0 or struct.unpack('!H', ip[6:8])[0] & 0xbfff:
+        return None
+    size = struct.unpack('!H', ip[2:4])[0]
+    if size < 40 or size > len(ip) or ip[16:20] != socket.inet_aton(local): return None
+    source = socket.inet_ntoa(ip[12:16])
+    try: target(source, interface, local, prefix, {interface})
+    except ValueError: return None
+    segment = ip[20:size]
+    pseudo = ip[12:20] + bytes([0, ip[9]]) + struct.pack('!H', len(segment))
+    if ip[9] == 17:
+        if len(segment) < 20 or struct.unpack('!H', segment[2:4])[0] != 53 or struct.unpack('!H', segment[4:6])[0] != len(segment): return None
+        if segment[6:8] != bytes(2) and checksum(pseudo + segment) != 0: return None
+        dns = segment[8:]
+    elif ip[9] == 6:
+        if len(segment) < 34 or struct.unpack('!H', segment[2:4])[0] != 53 or checksum(pseudo + segment) != 0: return None
+        header = (segment[12] >> 4) * 4
+        if header < 20 or header + 14 > len(segment) or segment[13] & 7: return None
+        payload = segment[header:]
+        length = struct.unpack('!H', payload[:2])[0]
+        if length < 12 or length + 2 > len(payload): return None
+        dns = payload[2:2+length]
+    else: return None
+    if len(dns) < 12 or dns[2] & 0x80 or dns[4:6] != b'\x00\x01': return None
+    return source, ':'.join(f'{b:02X}' for b in source_mac)
+
+
+class PassiveDnsEvidence:
+    def __init__(self, allowed, state=interface_state, clock=time.monotonic, wall=lambda: datetime.now(timezone.utc)):
+        self.allowed = frozenset(allowed); self.state = state; self.clock = clock; self.wall = wall
+        self.lock = threading.Lock(); self.rows = {}; self.states = {}; self.ready = False
+        self.blocked_until = 0; self.last_clock = None; self.reason = 'Passive receiver not ready'
+        self.stop = threading.Event(); self.thread = None
+
+    def invalidate(self, reason):
+        with self.lock:
+            self.rows.clear(); self.ready = False; self.reason = reason
+            self.blocked_until = self.clock() + PASSIVE_TTL
+
+    def observe(self, frame, peer, interface, state):
+        claim = passive_dns_claim(frame, peer, interface, state)
+        if claim is None: return
+        now = self.clock(); observed = self.wall()
+        with self.lock:
+            if not self.ready or now < self.blocked_until: return
+            if self.last_clock is not None and now < self.last_clock:
+                self.rows.clear(); self.ready = False; self.reason = 'Monotonic clock regression'; return
+            self.last_clock = now
+            self.rows = {k:v for k,v in self.rows.items() if 0 <= now-v[0] < PASSIVE_TTL}
+            key = (interface, claim[0], claim[1])
+            if key not in self.rows and len(self.rows) >= PASSIVE_LIMIT:
+                self.rows.clear(); self.ready = False; self.blocked_until = now + PASSIVE_TTL; self.reason = 'Passive evidence capacity exceeded'; return
+            self.rows[key] = (now, observed)
+
+    def snapshot(self, request_id):
+        now = self.clock(); wall = self.wall()
+        # Readback cannot refresh packet timestamps. Interface changes invalidate all evidence.
+        try: states = {name:self.state(name) for name in self.allowed}
+        except (OSError, ValueError): self.invalidate('Interface unavailable'); states = {}
+        with self.lock:
+            complete = self.ready and states == self.states and now >= self.blocked_until and (self.last_clock is None or now >= self.last_clock)
+            if states != self.states:
+                self.ready = False; self.reason = 'Interface unavailable or changed'
+            if not complete: self.rows.clear()
+            self.rows = {k:v for k,v in self.rows.items() if 0 <= now-v[0] < PASSIVE_TTL and v[1] <= wall < v[1]+timedelta(seconds=PASSIVE_TTL)}
+            rows = [dict(interface=k[0], address=k[1], mac=k[2], observedAtUtc=v[1].isoformat(), expiresAtUtc=(v[1]+timedelta(seconds=PASSIVE_TTL)).isoformat()) for k,v in sorted(self.rows.items())] if complete else []
+            return dict(requestId=request_id, method='PassiveDnsL2', complete=complete, readAtUtc=wall.isoformat(), reason='Incoming Ethernet DNS; unauthenticated network claim' if complete else self.reason, evidence=rows)
+
+    def start(self):
+        if not 1 <= len(self.allowed) <= 2: raise ValueError('Passive capture requires one or two approved interfaces')
+        self.thread = threading.Thread(target=self._receive, name='passive-dns', daemon=True); self.thread.start()
+
+    def _receive(self):
+        sockets = {}
+        try:
+            states = {name:self.state(name) for name in self.allowed}
+            for name in sorted(self.allowed):
+                raw = socket.socket(socket.AF_PACKET, socket.SOCK_RAW, socket.htons(0x0800)); sockets[raw] = name
+                raw.bind((name, 0)); raw.setblocking(False)
+                # No send(), PACKET_ADD_MEMBERSHIP or promiscuous mode.
+            with self.lock: self.states = states; self.ready = True; self.reason = 'Passive receiver ready'
+            next_check = self.clock() + 1; count = 0
+            while not self.stop.is_set():
+                now = self.clock()
+                if now >= next_check:
+                    if {name:self.state(name) for name in self.allowed} != states: raise ValueError('Interface changed')
+                    for raw in sockets:
+                        _, drops = struct.unpack('II', raw.getsockopt(263, 6, 8))  # PACKET_STATISTICS, resets counters
+                        if drops: self.invalidate('Passive packet loss')
+                    with self.lock:
+                        if now >= self.blocked_until: self.ready = True
+                    count = 0; next_check = now + 1
+                readable, _, _ = select.select(list(sockets), [], [], .05)
+                for raw in readable:
+                    frame, peer = raw.recvfrom(MAX_FRAME+1); count += 1
+                    if count > 1024: self.invalidate('Passive receive budget exceeded')
+                    else: self.observe(frame, peer, sockets[raw], states[sockets[raw]])
+        except (OSError, ValueError, AttributeError): self.invalidate('Passive receiver unavailable or interface changed')
+        finally:
+            for raw in sockets: raw.close()
+            self.invalidate('Passive receiver stopped')
+
+
 class Validator:
     def __init__(self, allowed, transport=None, state=interface_state, clock=time.monotonic):
         self.allowed = frozenset(allowed)
@@ -109,9 +233,16 @@ class Validator:
         self.state = state; self.clock = clock
         self.lock = threading.Lock(); self.active = set(); self.last = {}; self.global_times = []
         self.stop = threading.Event()
+        self.passive = None
 
     def validate(self, request):
         requested = utc()
+        if isinstance(request, dict) and request.get('operation') == 'passiveDnsRead':
+            if set(request) != {'requestId', 'operation'} or not isinstance(request['requestId'], str) or not re.fullmatch('[a-f0-9]{32}', request['requestId']):
+                raise ValueError('Invalid passive read request')
+            if self.passive is None:
+                return dict(requestId=request['requestId'], method='PassiveDnsL2', complete=False, readAtUtc=utc(), reason='Passive capture disabled', evidence=[])
+            return self.passive.snapshot(request['requestId'])
         if not isinstance(request, dict) or set(request) != {'requestId', 'address', 'interface'} or not all(isinstance(v, str) for v in request.values()) or not re.fullmatch('[a-f0-9]{32}', request['requestId']):
             raise ValueError('Invalid bounded request')
         address, interface = request['address'], request['interface']
@@ -314,10 +445,18 @@ if __name__ == '__main__':
     parser.add_argument('--interface', action='append', required=True)
     parser.add_argument('--engine-uid', type=int, required=True)
     parser.add_argument('--engine-executable', required=True)
+    parser.add_argument('--passive-dns', action='store_true', help='Receive-only bounded L2 DNS evidence; does not enable ARP probing')
     args = parser.parse_args()
     if not os.path.isabs(args.socket) or not os.path.isabs(args.engine_executable) or args.engine_uid != os.geteuid():
         parser.error('Absolute paths and same restricted service UID required')
     validator = Validator(args.interface)
     signal.signal(signal.SIGTERM, lambda *_: validator.stop.set())
     signal.signal(signal.SIGINT, lambda *_: validator.stop.set())
-    serve(args.socket, validator, args.engine_uid, os.path.realpath(args.engine_executable))
+    # Validate the protected executable before starting any packet observer.
+    if not protected_executable(os.path.realpath(args.engine_executable)): raise ValueError('Unprotected Engine executable')
+    if args.passive_dns:
+        validator.passive = PassiveDnsEvidence(args.interface); validator.passive.start()
+    try: serve(args.socket, validator, args.engine_uid, os.path.realpath(args.engine_executable))
+    finally:
+        if validator.passive is not None:
+            validator.passive.stop.set(); validator.passive.thread.join(timeout=2)

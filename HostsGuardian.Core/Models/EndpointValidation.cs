@@ -8,6 +8,8 @@ public sealed record ValidatorHealth(string State,string Reason,bool ActiveValid
     public DateTimeOffset? DeadlineUtc {get;init;}
     public double RemainingSeconds {get;init;}
     public string ModeReason {get;init;}="Disabled";
+    public string PassiveDnsL2State {get;init;}="Disabled";
+    public string PassiveDnsL2Reason {get;init;}="Receive-only evidence not enabled";
 }
 public sealed record EndpointValidationResult(string RequestId,string Address,string Interface,
     DateTimeOffset RequestedAtUtc,DateTimeOffset ObservedAtUtc,DateTimeOffset? ConfirmedAtUtc,
