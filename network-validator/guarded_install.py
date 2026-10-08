@@ -126,12 +126,26 @@ class Deployment:
         self.release=Path('/opt/hostsguardian/releases')/deployment_id[:16]
         self.backup=Path('/var/lib/hostsguardian-deployment/rollback')/(deployment_id[:16]+'-pre')
         self.created_units=[];self.changed=False;self.installed_monitor=False;self.backup_created=False
+        self.socket_enable_attempted=False
 
     @staticmethod
     def output(*args,timeout=3):return subprocess.check_output(args,text=True,timeout=timeout).strip()
     @staticmethod
     def run(*args):subprocess.run(args,check=True,timeout=60)
     def prop(self,name,timeout=3):return self.output('systemctl','show',UNIT,'-p',name,'--value',timeout=timeout)
+
+    def start_validator_socket(self):
+        # This attempt owns the new socket unit. Track before enable: a failed
+        # command can still have created a boot link which rollback must remove.
+        self.socket_enable_attempted=True
+        self.run('systemctl','enable',SOCKET)
+        check(self.output('systemctl','is-enabled',SOCKET)=='enabled','Validator socket boot persistence missing')
+        self.run('systemctl','start',SOCKET)
+
+    def remove_validator_socket_enablement(self):
+        if self.socket_enable_attempted:
+            self.run('systemctl','disable',SOCKET)
+            self.socket_enable_attempted=False
 
     def preserved(self):
         b=self.baseline
@@ -159,6 +173,8 @@ class Deployment:
         check(not self.release.exists() and not self.backup.exists() and not DROPIN.exists(),'Candidate/backup/drop-in already exists; inspect before retry')
         for name in (HELPER,SOCKET):
             check(not Path('/etc/systemd/system',name).exists() and not Path('/usr/lib/systemd/system',name).exists() and self.output('systemctl','show',name,'-p','LoadState','--value')=='not-found','Unexpected existing helper unit')
+        boot_link=Path('/etc/systemd/system/sockets.target.wants')/SOCKET
+        check(not boot_link.exists() and not boot_link.is_symlink(),'Unexpected existing validator boot link')
         check(not SOCKET_PATH.exists() and not SOCKET_PATH.is_symlink(),'Existing socket requires review, never blindly unlink')
         if SOCKET_PATH.parent.exists():protected(SOCKET_PATH.parent,True)
         # Preserve old publication for rollback; never edit/move it.
@@ -265,13 +281,14 @@ class Deployment:
         self.run('systemctl','stop',UNIT)
         check(self.preserved(),'Preservation changed before restart; policy is never restored automatically')
         self.installed_monitor=True;self.run('dpkg','--install',str(self.release/('hostsguardian-monitor_'+self.manifest['monitorVersion']+'_all.deb')))
-        self.run('systemctl','daemon-reload');self.run('systemctl','start',SOCKET);self.run('systemctl','start',UNIT)
+        self.run('systemctl','daemon-reload');self.start_validator_socket();self.run('systemctl','start',UNIT)
         wait_ready(lambda remaining:self.collect(remaining,True),self.backup,'candidate')
         (self.backup/'result.json').write_text(json.dumps(dict(status='DEPLOYED_IPC_VERIFIED_ACTIVE_ARP_DISABLED',sourceIdentity=self.manifest['sourceIdentity'],policyPreserved=True,activeValidationEnabled=False,unitConfigurationChanged=True,networkConfigurationChanged=False,daemonReloadPerformed=True),indent=2)+'\n')
 
     def rollback(self):
         # Only revert files created by this attempt. Prior Engine/policy/security remain untouched.
         self.run('systemctl','stop',UNIT)
+        self.remove_validator_socket_enablement()
         for name in (HELPER,SOCKET):
             loaded=self.output('systemctl','show',name,'-p','LoadState','--value')
             if loaded!='not-found':self.run('systemctl','stop',name)

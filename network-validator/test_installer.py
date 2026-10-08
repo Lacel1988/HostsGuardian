@@ -54,7 +54,7 @@ import guarded_install as installer
 class CollectorTests(unittest.TestCase):
     def collect(self, candidate=True, separate=False, bad_owner=False,
                 failed_probe=None, service_error=False, helper_caps='2000',
-                stale=False, service_uid=1000, engine_caps='400'):
+                stale=False, service_uid=1000, engine_caps='400', active_validation=False):
         with tempfile.TemporaryDirectory() as folder, ExitStack() as stack:
             stage=Path(folder)
             baseline=dict(engineUid=1000,oldExecutable='/fixture/old',dnsIpv4='127.0.0.1',dnsIpv6='::1',
@@ -81,7 +81,7 @@ class CollectorTests(unittest.TestCase):
                 if name=='/fixture/token':return 'fixture-secret-not-logged'
                 if name=='/fixture/status':
                     now=datetime.now(timezone.utc).isoformat() if not stale else '2000-01-01T00:00:00+00:00'
-                    return json.dumps(dict(processId=42,emittedAtUtc=now,validator=dict(state='READY',activeValidationEnabled=False,checkedAtUtc=now)))
+                    return json.dumps(dict(processId=42,emittedAtUtc=now,validator=dict(state='READY',activeValidationEnabled=active_validation,checkedAtUtc=now)))
                 if name.startswith('/proc/') and name.endswith('/status'):
                     cap=helper_caps if '/99/' in name else engine_caps
                     return '\n'.join(f'{key}: {cap}' for key in ('CapPrm','CapEff','CapAmb','CapBnd'))+'\nNoNewPrivs: 1'
@@ -147,6 +147,12 @@ class CollectorTests(unittest.TestCase):
     def test_stale_helper_health_is_not_ready(self):
         state,_=self.collect(stale=True);self.assertFalse(state['helper'])
 
+    def test_ready_helper_with_active_arp_enabled_is_rejected_without_losing_dns(self):
+        state,_=self.collect(active_validation=True)
+        self.assertFalse(state['helper'])
+        for key in ('service','ipv4Udp','ipv4Tcp','ipv6Udp','ipv6Tcp','https'):
+            self.assertTrue(state[key],key)
+
     def test_socket_parser_only_uses_local_port_exact_owner_both_transports(self):
         rows=installer.dns_socket_rows('udp UNCONN 0 0 *:5353 *:53 users:(("x",pid=42,fd=1))\nudp UNCONN 0 0 *:53 *:* users:(("x",pid=420,fd=1))')
         self.assertEqual(len(rows),1);self.assertFalse(installer.dns_socket_ownership(rows,42))
@@ -177,6 +183,77 @@ class CollectorTests(unittest.TestCase):
         self.assertEqual(installer.exec_start_configuration(first),installer.exec_start_configuration(second))
         self.assertNotEqual(installer.exec_start_configuration(first),installer.exec_start_configuration(second.replace('argv[]=/fixture/Engine','argv[]=/fixture/Engine --unsafe')))
         with self.assertRaises(RuntimeError):installer.exec_start_configuration('unknown format')
+
+class SocketLifecycleTests(unittest.TestCase):
+    def deployment(self):
+        return installer.Deployment(Path('/fixture'),dict(sourceIdentity='a'*64),{})
+
+    def test_install_and_simulated_reboot_retain_socket_without_enabling_helper_or_arp(self):
+        operation=self.deployment();enabled=set();active=set();commands=[]
+        def run(*args):
+            commands.append(args)
+            if args[1]=='enable':enabled.add(args[2])
+            if args[1]=='start':active.add(args[2])
+            if args[1]=='disable':enabled.discard(args[2])
+        operation.run=run
+        operation.output=lambda *args:'enabled' if args[2] in enabled else 'disabled'
+        operation.start_validator_socket()
+        self.assertEqual(active,{installer.SOCKET});self.assertEqual(enabled,{installer.SOCKET})
+        template=(Path(__file__).parent/'packaging'/ (installer.SOCKET+'.in')).read_text()
+        self.assertIn('WantedBy=sockets.target',template)
+        # Model boot target activation, without executing systemd or network code.
+        active.clear();active.update(enabled)
+        self.assertEqual(active,{installer.SOCKET})
+        self.assertNotIn(installer.HELPER,enabled)
+        self.assertEqual(commands,[('systemctl','enable',installer.SOCKET),('systemctl','start',installer.SOCKET)])
+        operation.remove_validator_socket_enablement();self.assertEqual(enabled,set())
+
+    def test_partial_enable_failure_is_cleanup_owned_and_never_starts_socket(self):
+        operation=self.deployment();commands=[]
+        def run(*args):
+            commands.append(args)
+            if args[1]=='enable':raise RuntimeError('partial enable failure')
+        operation.run=run
+        with self.assertRaisesRegex(RuntimeError,'partial enable'):operation.start_validator_socket()
+        self.assertTrue(operation.socket_enable_attempted)
+        operation.remove_validator_socket_enablement()
+        self.assertEqual(commands,[('systemctl','enable',installer.SOCKET),('systemctl','disable',installer.SOCKET)])
+
+    def test_missing_boot_enablement_fails_before_start(self):
+        operation=self.deployment();commands=[]
+        operation.run=lambda *args:commands.append(args);operation.output=lambda *args:'disabled'
+        with self.assertRaisesRegex(RuntimeError,'boot persistence'):operation.start_validator_socket()
+        self.assertNotIn(('systemctl','start',installer.SOCKET),commands)
+
+    def test_failed_disable_retains_cleanup_ownership_for_retry(self):
+        operation=self.deployment();operation.socket_enable_attempted=True
+        operation.run=lambda *args:(_ for _ in ()).throw(RuntimeError('disable failed'))
+        with self.assertRaisesRegex(RuntimeError,'disable failed'):operation.remove_validator_socket_enablement()
+        self.assertTrue(operation.socket_enable_attempted)
+
+    def test_no_enable_attempt_does_not_disable_unowned_socket(self):
+        operation=self.deployment();commands=[];operation.run=lambda *args:commands.append(args)
+        operation.remove_validator_socket_enablement();self.assertEqual(commands,[])
+
+    def test_rollback_disables_before_removing_unit_and_restores_engine_readiness(self):
+        with tempfile.TemporaryDirectory() as folder, ExitStack() as stack:
+            operation=self.deployment();operation.backup=Path(folder)
+            unit=Path(folder)/installer.SOCKET;unit.write_text('fixture')
+            operation.created_units=[unit];operation.socket_enable_attempted=True
+            commands=[]
+            def run(*args):
+                commands.append(args)
+                if args[1]=='disable':self.assertTrue(unit.exists())
+            operation.run=run;operation.output=lambda *args:'loaded'
+            operation.old_engine_unchanged=lambda:True;operation.preserved=lambda:True
+            operation.collect=lambda remaining,candidate: {'fixture':not candidate}
+            ready=stack.enter_context(patch.object(installer,'wait_ready'))
+            operation.rollback()
+            self.assertFalse(unit.exists());self.assertFalse(operation.socket_enable_attempted)
+            self.assertIn(('systemctl','start',installer.UNIT),commands)
+            self.assertEqual(ready.call_args.args[2],'rollback')
+            self.assertEqual(ready.call_args.args[0](5),{'fixture':True})
+
 
 class FailureEvidenceTests(unittest.TestCase):
     def test_original_and_rollback_exceptions_are_retained_without_overwriting_prior_attempt(self):
