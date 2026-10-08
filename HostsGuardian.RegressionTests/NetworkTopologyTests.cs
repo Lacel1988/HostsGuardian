@@ -37,8 +37,9 @@ internal static class NetworkTopologyTests
         NetworkIdentityEvidence Evidence(string address="192.0.2.20",string candidateMac=mac)=>new(address,candidateMac,"","Kernel fixture",now.AddMinutes(-50)){Interface="fixture0",NeighborState="STALE",ReadAtUtc=now};
         var read=new BindingEvidenceRead(now,true,[Evidence()]);
         EndpointValidationResult Result(EndpointValidationRequest request)=>new(request.RequestId,request.Address,request.Interface,now,now,now,now,now.AddSeconds(45),"TargetedARP","Confirmed",[mac],"Fixture network claim");
+        ActiveValidationScope Scope()=>ActiveValidationScope.Parse("1",id.ToString("D"),"120",policy);
         var store=new AddressBindingStore();var validator=new FixtureValidator(Result);
-        var producer=new ActiveBindingProducer(store,()=>policy,()=>read,validator,()=>now);
+        var producer=new ActiveBindingProducer(store,()=>policy,()=>read,validator,()=>now,activeValidationEnabled:true,scope:Scope());
         await asyncTest("Validator client rejects substituted endpoint and malformed greeting before any request; health probe sends no ARP",async()=>{
             foreach(var mode in new[]{"ready","bad-greeting","race"})
             {
@@ -82,17 +83,17 @@ internal static class NetworkTopologyTests
         await asyncTest("Binding V2 IP reuse conflict changed registry Forget and unavailable helper fail closed",async()=>{
             read=read with{Evidence=[Evidence(candidateMac:"02:00:00:00:00:12")]};await producer.RefreshAsync(default);Check(store.Read().Observations.Length==0,"IP reuse inherited identity");
             read=read with{Evidence=[Evidence(),Evidence(candidateMac:"02:00:00:00:00:12")]};await producer.RefreshAsync(default);Check(store.Read().Observations.Length==0,"Conflict accepted");
-            read=read with{Evidence=[Evidence()]};var fresh=new ActiveBindingProducer(store,()=>policy,()=>read,new FixtureValidator(Result),()=>now);await fresh.RefreshAsync(default);
+            read=read with{Evidence=[Evidence()]};var fresh=new ActiveBindingProducer(store,()=>policy,()=>read,new FixtureValidator(Result),()=>now,activeValidationEnabled:true,scope:Scope());await fresh.RefreshAsync(default);
             var snapshot=store.Read();policy=policy with{Devices=[]};Check(AddressBindingStore.Resolve(snapshot,policy,new(DnsTransport.Udp,"192.0.2.20",0,now,null),now).DeviceId==null,"Forget not immediate");await fresh.RefreshAsync(default);Check(store.Read().Observations.Length==0,"Forgotten cache remained");
             policy=policy with{Devices=[registration with{Mac="02:00:00:00:00:12"}]};await fresh.RefreshAsync(default);Check(store.Read().Observations.Length==0,"Registration change retained binding");
-            policy=policy with{Devices=[registration]};await new ActiveBindingProducer(store,()=>policy,()=>read,new FixtureValidator(_=>null),()=>now).RefreshAsync(default);Check(store.Read().Observations.Length==0,"Unavailable helper granted binding");
+            policy=policy with{Devices=[registration]};await new ActiveBindingProducer(store,()=>policy,()=>read,new FixtureValidator(_=>null),()=>now,activeValidationEnabled:true,scope:Scope()).RefreshAsync(default);Check(store.Read().Observations.Length==0,"Unavailable helper granted binding");
         });
         await asyncTest("Binding V2 rejects stale and ambiguous registry evidence changed during validation",async()=>{
             policy=policy with{Devices=[registration]};read=new(now,true,[Evidence()]);
-            var race=new ActiveBindingProducer(store,()=>policy,()=>read,new FixtureValidator(request=>{policy=policy with{Devices=[registration,registration with{DeviceId=Guid.NewGuid()}]};return Result(request);}),()=>now);
+            var race=new ActiveBindingProducer(store,()=>policy,()=>read,new FixtureValidator(request=>{policy=policy with{Devices=[registration,registration with{DeviceId=Guid.NewGuid()}]};return Result(request);}),()=>now,activeValidationEnabled:true,scope:Scope());
             await race.RefreshAsync(default);Check(store.Read().Observations.Length==0,"In-flight ambiguous registration accepted");
             policy=policy with{Devices=[registration]};read=new(now,true,[Evidence()]);
-            race=new ActiveBindingProducer(store,()=>policy,()=>read,new FixtureValidator(request=>{read=read with{ReadAtUtc=now.AddSeconds(-21)};return Result(request);}),()=>now);
+            race=new ActiveBindingProducer(store,()=>policy,()=>read,new FixtureValidator(request=>{read=read with{ReadAtUtc=now.AddSeconds(-21)};return Result(request);}),()=>now,activeValidationEnabled:true,scope:Scope());
             await race.RefreshAsync(default);Check(store.Read().Observations.Length==0,"In-flight stale observation accepted");
             read=new(now,true,[Evidence()]);
         });

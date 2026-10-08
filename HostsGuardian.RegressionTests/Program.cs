@@ -41,6 +41,12 @@ var config = new AppConfig { BlockedDomains = new()
 
 try
 {
+    if(args.Contains("--active-validation-tests"))
+    {
+        await ScopedValidationTests.Run(Test,AsyncTest);
+        await NetworkTopologyTests.Run(Test,AsyncTest);
+        Console.WriteLine($"Scoped validation: {passed} groups PASS");return;
+    }
     FingerprintTests.Run(Test);
     Test("shared device type inference preserves uncertainty and user authority", () =>
     {

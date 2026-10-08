@@ -7,15 +7,19 @@ namespace HostsGuardian.DnsEngine;
 /// <summary>Atomic, bounded observations; DNS workers only read a snapshot and evaluate freshness.</summary>
 public sealed class AddressBindingStore
 {
-    private BindingRead _snapshot = new(0, []);
+    private sealed record Snapshot(BindingRead Value,Func<bool>? Validity=null);
+    private Snapshot _snapshot = new(new(0, []));
     private readonly object _gate = new();
-    public BindingRead Read() => Volatile.Read(ref _snapshot);
-    internal void PublishObserved(ImmutableArray<AddressBindingObservation> observations)
+    public BindingRead Read() {
+        var snapshot=Volatile.Read(ref _snapshot);
+        return snapshot.Validity is null || snapshot.Validity() ? snapshot.Value : new(snapshot.Value.Generation,[]);
+    }
+    internal void PublishObserved(ImmutableArray<AddressBindingObservation> observations,Func<bool>? validity=null)
     {
         lock(_gate) {
-            var current=Read();if(current.Observations.SequenceEqual(observations))return;
-            if(current.Generation==long.MaxValue) { Volatile.Write(ref _snapshot,new(current.Generation,[]));return; }
-            Volatile.Write(ref _snapshot,new(current.Generation+1,observations));
+            var current=Read();if(current.Observations.SequenceEqual(observations) && _snapshot.Validity==validity)return;
+            if(current.Generation==long.MaxValue) { Volatile.Write(ref _snapshot,new(new(current.Generation,[])));return; }
+            Volatile.Write(ref _snapshot,new(new(current.Generation+1,observations),validity));
         }
     }
     public bool Replace(BindingReplace candidate)
@@ -36,7 +40,7 @@ public sealed class AddressBindingStore
         {
             var current = Read();
             if (current.Generation != candidate.ExpectedGeneration || current.Generation == long.MaxValue) return false;
-            Volatile.Write(ref _snapshot, new(current.Generation + 1, candidate.Observations));
+            Volatile.Write(ref _snapshot, new(new(current.Generation + 1, candidate.Observations)));
             return true;
         }
     }
