@@ -26,6 +26,40 @@ internal static class ValidatedBindingTests
         test("Binding producer DHCP move invalidates old IP and binds new IP",()=>{
             evidence=new(now,true,[E("192.0.2.32")]);producer.Refresh();Check(Resolve("192.0.2.31")==null && Resolve("192.0.2.32")==id,"DHCP identity leak");
         });
+        test("Passive sleep wake restart preserve registry and revalidate evidence",()=>{
+            evidence=new(now,true,[E("192.0.2.31",state:"STALE")]);producer.Refresh();
+            Check(store.Read().Observations.Length==0 && policy.Devices.Single().DeviceId==id,"Sleep erased registration or trusted stale evidence");
+            now=now.AddSeconds(2);evidence=new(now,true,[E("192.0.2.31")]);producer.Refresh();
+            Check(Resolve("192.0.2.31")==id,"Wake confirmation not adopted");
+            var restarted=new AddressBindingStore();Check(restarted.Read().Observations.Length==0,"Restart retained runtime IP trust");
+            new ValidatedBindingProducer(restarted,()=>policy,()=>evidence,()=>now).Refresh();
+            Check(AddressBindingStore.Resolve(restarted.Read(),policy,Context("192.0.2.31"),now).DeviceId==id,"Passive restart did not revalidate");
+            now=now.AddSeconds(-2); // Later wire-response fixtures use the real processor clock.
+        });
+        test("Passive multiple IPv4 claims conflict; IPv6 evidence grants no IPv6 binding",()=>{
+            evidence=new(now,true,[E("192.0.2.31"),E("192.0.2.32")]);producer.Refresh();
+            Check(store.Read().Observations.Length==0,"Multiple IPv4 claims merged");
+            evidence=new(now,true,[E("192.0.2.31"),E("2001:db8::31")]);producer.Refresh();
+            Check(Resolve("192.0.2.31")==id && AddressBindingStore.Resolve(store.Read(),policy,Context("2001:db8::31"),now).DeviceId==null,"IPv6 identity leak");
+        });
+        test("Configurable binding freshness tightens expiry without extending trust",()=>{
+            Check(ValidatedBindingProducer.ParseEvidenceAge(null)==TimeSpan.FromSeconds(15),"Default evidence age changed");
+            foreach(var invalid in new[]{"","bad","0","16","-1"})Check(ValidatedBindingProducer.ParseEvidenceAge(invalid)==TimeSpan.Zero,"Malformed setting enabled bindings");
+            evidence=new(now,true,[E("192.0.2.31")]);
+            Check(ValidatedBindingProducer.Build(policy,evidence,now,TimeSpan.FromSeconds(5)).Single().ExpiresAtUtc==now.AddSeconds(5),"Configured expiry ignored");
+            Check(ValidatedBindingProducer.Build(policy,evidence,now.AddSeconds(5),TimeSpan.FromSeconds(5)).Length==0,"Expired evidence renewed");
+            foreach(var duration in new[]{0,16,300})Check(ValidatedBindingProducer.Build(policy,evidence,now,TimeSpan.FromSeconds(duration)).Length==0,"Invalid duration authorized identity");
+        });
+        test("Enforceability distinguishes Verified Stale Unknown Conflict from registration",()=>{
+            evidence=new(now,true,[E("192.0.2.31")]);producer.Refresh();var read=store.Read();
+            Check(DeviceEnforcementReadiness.Assess(id,policy,read,now,now).State=="Verified","Verified missing");
+            Check(DeviceEnforcementReadiness.Assess(id,policy,read,now.AddSeconds(15),now.AddSeconds(15)).State=="Stale","Expired binding verified");
+            Check(DeviceEnforcementReadiness.Assess(id,policy,read,now,now.AddSeconds(15)).State=="Unknown","Old read current");
+            Check(DeviceEnforcementReadiness.Assess(id,policy,null,now,now).State=="Unknown","Inventory became binding");
+            var conflict=read with {Observations=read.Observations.Add(read.Observations[0] with{DeviceId=Guid.NewGuid()})};
+            Check(DeviceEnforcementReadiness.Assess(id,policy,conflict,now,now).State=="Conflict","Conflicting identity hidden");
+            Check(DeviceEnforcementReadiness.Assess(id,policy with{Devices=[]},read,now,now).State=="Unknown","Forgotten identity enforceable");
+        });
         test("Binding producer IP reuse different MAC never inherits registered identity",()=>{
             evidence=new(now,true,[E("192.0.2.32","02:AB:CD:04:05:06")]);producer.Refresh();Check(Resolve("192.0.2.32")==null,"IP reuse leak");
         });
@@ -101,17 +135,43 @@ internal static class ValidatedBindingTests
             using var upstream=new UdpClient(new IPEndPoint(IPAddress.Loopback,0));using var timeout=new CancellationTokenSource(TimeSpan.FromSeconds(5));
             var settings=EngineSettings.FromConfig(new EngineConfig{UpstreamDnsIpv4="127.0.0.1",UpstreamDnsPort=((IPEndPoint)upstream.Client.LocalEndPoint!).Port});
             var rules=new RuleStore("binding-fixture");var application=new PolicyApplicationService(rules,new PolicyPersistence(Path.Combine(folder,"binding-policy.json")));
-            Check(application.ReplaceFull(new(0,policy)).Success,"Fixture commit failed");var state=application.State.GetSnapshot();
+            var otherId=Guid.NewGuid();const string otherMac="02:AB:CD:04:05:06";
+            var tvPolicy=policy with {Devices=[registration,new(otherId,"Other registered appliance",otherMac,"fixture","Explicit")],Overrides=[new(id,"youtube.com",DeviceDomainRuleState.Block)]};
+            Check(application.ReplaceFull(new(0,tvPolicy)).Success,"Fixture commit failed");var state=application.State.GetSnapshot();
             var processor=new DnsRequestProcessor(rules,settings,new UpstreamDnsForwarder(settings),application.State);
-            new ValidatedBindingProducer(processor.Bindings,()=>policy,()=>new(now,true,[E("192.0.2.31")]),()=>now).Refresh();
-            var query=new List<byte>{0x12,0x34,1,0,0,1,0,0,0,0,0,0};foreach(var label in "binding.invalid".Split('.')) {query.Add((byte)label.Length);query.AddRange(Encoding.ASCII.GetBytes(label));}query.AddRange(new byte[]{0,0,1,0,1});
+            new ValidatedBindingProducer(processor.Bindings,()=>tvPolicy,()=>new(now,true,[E("192.0.2.31"),E("192.0.2.32",otherMac)]),()=>now).Refresh();
+            byte[] Query(string domain) {
+                var bytes=new List<byte>{0x12,0x34,1,0,0,1,0,0,0,0,0,0};
+                foreach(var label in domain.Split('.')) {bytes.Add((byte)label.Length);bytes.AddRange(Encoding.ASCII.GetBytes(label));}
+                bytes.AddRange(new byte[]{0,0,1,0,1});return bytes.ToArray();
+            }
+            var query=Query("youtube.com");
             foreach(var transport in new[]{DnsTransport.Udp,DnsTransport.Tcp}) {
-                var response=await processor.ProcessAsync(query.ToArray(),Context("192.0.2.31",transport),timeout.Token);
-                Check(response!=null && processor.Observations.Read().Last() is{DeviceId:var found,Blocked:true} && found==id,"Bound transport not blocked"); }
+                foreach(var domain in new[]{"youtube.com","www.youtube.com"}) {
+                    var response=await processor.ProcessAsync(Query(domain),Context("192.0.2.31",transport),timeout.Token);
+                    Check(response!=null && response[6]==0 && response[7]==1 && response.TakeLast(4).All(b=>b==0) &&
+                        processor.Observations.Read().Last() is{DeviceId:var found,Blocked:true} && found==id,"Bound transport did not return actual sinkhole response");
+                } }
             var answer=Task.Run(async()=>{var request=await upstream.ReceiveAsync(timeout.Token);var bytes=request.Buffer;bytes[2]=0x81;bytes[3]=0x80;await upstream.SendAsync(bytes,request.RemoteEndPoint,timeout.Token);});
             await processor.ProcessAsync(query.ToArray(),Context("192.0.2.32"),timeout.Token);await answer;
-            var decision=processor.Observations.Read().Last();Check(!decision.Blocked && decision.DeviceId==null && decision.Reason=="GlobalAllow","Unbound inherited device rule");
-            Check(application.State.GetSnapshot()==state && processor.Telemetry.Counters().PolicyBlocked==2,"Binding mutated policy or telemetry incorrect");
+            var decision=processor.Observations.Read().Last();Check(!decision.Blocked && decision.DeviceId==otherId && decision.Reason=="GlobalAllow","Other registered device inherited TV rule");
+            foreach(var source in new[]{"192.0.2.99","2001:db8::31"}) {
+                var allowedAnswer=Task.Run(async()=>{var request=await upstream.ReceiveAsync(timeout.Token);var bytes=request.Buffer;bytes[2]=0x81;bytes[3]=0x80;await upstream.SendAsync(bytes,request.RemoteEndPoint,timeout.Token);});
+                var allowed=await processor.ProcessAsync(query,Context(source),timeout.Token);await allowedAnswer;
+                Check(allowed is not null && allowed[7]==0 && processor.Observations.Read().Last() is{DeviceId:null,Blocked:false},"Unknown/IPv6 inherited TV rule");
+            }
+            Check(application.State.GetSnapshot()==state && processor.Telemetry.Counters().PolicyBlocked==4,"Binding mutated policy or telemetry incorrect");
+            Check(!ActiveValidationScope.Parse("0",null,null,tvPolicy).IsActive,"Normal passive fixture enabled active probing");
+            new ValidatedBindingProducer(processor.Bindings,()=>tvPolicy,()=>new(now,true,[E("192.0.2.31")]),()=>now,TimeSpan.Zero).Refresh();
+            var invalidConfigAnswer=Task.Run(async()=>{var request=await upstream.ReceiveAsync(timeout.Token);var bytes=request.Buffer;bytes[2]=0x81;bytes[3]=0x80;await upstream.SendAsync(bytes,request.RemoteEndPoint,timeout.Token);});
+            var invalidConfigResponse=await processor.ProcessAsync(query,Context("192.0.2.31"),timeout.Token);await invalidConfigAnswer;
+            Check(invalidConfigResponse is not null && processor.Observations.Read().Last() is{DeviceId:null,Blocked:false},"Invalid binding configuration stopped DNS or trusted device");
+            new ValidatedBindingProducer(processor.Bindings,()=>tvPolicy,()=>new(now,true,[E("192.0.2.31")]),()=>now).Refresh();
+            Check(application.ReplaceFull(new(state.Revision,tvPolicy with {Overrides=[new(id,"youtube.com",DeviceDomainRuleState.Inherit)]})).Success,"Restore commit failed");
+            var restoredAnswer=Task.Run(async()=>{var request=await upstream.ReceiveAsync(timeout.Token);var bytes=request.Buffer;bytes[2]=0x81;bytes[3]=0x80;await upstream.SendAsync(bytes,request.RemoteEndPoint,timeout.Token);});
+            var restoredResponse=await processor.ProcessAsync(query,Context("192.0.2.31"),timeout.Token);await restoredAnswer;
+            Check(restoredResponse!=null && restoredResponse.SequenceEqual(query.Select((b,i)=>i==2?(byte)0x81:i==3?(byte)0x80:b)) &&
+                processor.Observations.Read().Last() is {Blocked:false,DeviceId:var restoredId} && restoredId==id,"Inherit did not restore actual upstream response");
         });
     }
 }

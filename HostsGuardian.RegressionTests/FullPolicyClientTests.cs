@@ -11,6 +11,37 @@ internal static class FullPolicyClientTests
             [new(id, "one.invalid", DeviceDomainRuleState.Allow)]));
         var cfg = new DnsEngineConfig { Address = "fixture.invalid", ApiToken = new string('A', 64) };
         var options = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
+        foreach (var concurrentEdit in new[] { false, true })
+        await test("Restart baseline recovery preserves draft and rejects concurrent edits: " + concurrentEdit, async () =>
+        {
+            var outgoing = full with { Overrides = [new(id, "one.invalid", DeviceDomainRuleState.Block)] };
+            var current = concurrentEdit ? full with { Devices = [full.Devices[0] with { Name = "Other user edit" }] } : full;
+            var posted = false;
+            var service = new DnsEngineService(() => new HttpClient(new Handler(request =>
+            {
+                if (request.RequestUri!.AbsolutePath == "/v2/policy")
+                    return JsonSerializer.Serialize(new FullPolicyRead(posted ? 8 : 7, posted ? outgoing : current, "restarted"), options);
+                if (request.RequestUri.AbsolutePath == "/v2/policy/replace")
+                {
+                    var payload = JsonSerializer.Deserialize<FullPolicyReplace>(request.Content!.ReadAsStringAsync().GetAwaiter().GetResult(), options)!;
+                    if (payload.ExpectedInstanceId != "restarted" || payload.ExpectedRevision != 7 ||
+                        JsonSerializer.Serialize(payload.Policy, options) != JsonSerializer.Serialize(outgoing, options))
+                        throw new Exception("Restart recovery lost draft or bypassed CAS");
+                    posted = true;
+                    return "{\"ok\":true,\"revision\":8}";
+                }
+                if (request.RequestUri.AbsolutePath == "/v2/capabilities")
+                    return "{\"policySchemaVersion\":2,\"fullPolicyReadback\":true,\"optimisticConcurrency\":true}";
+                if (request.RequestUri.AbsolutePath == "/health") return "{\"engine\":\"HostsGuardian.DnsEngine\",\"apiVersion\":1}";
+                if (request.RequestUri.AbsolutePath == "/dns/status")
+                    return JsonSerializer.Serialize(new DnsServiceStatus {Implementation="HostsGuardian.DnsEngine",InstanceId="restarted",
+                        DnsPort=53,ApiPort=cfg.ManagementPort,PolicyRevision=8},options);
+                return "{}";
+            })));
+            var result = await service.ReplaceFullPolicyFromBaselineAsync(cfg, new(1, full, "old-instance"), outgoing);
+            if (posted == concurrentEdit || (!concurrentEdit && (!result.Confirmed || result.Readback?.InstanceId != "restarted")))
+                throw new Exception("Unsafe restart delivery or unchanged baseline not recovered");
+        });
         foreach (var mismatch in new[] { "global", "override", "registry", "instance" })
         await test("Integrated same-count full readback rejects " + mismatch + " mismatch", async () =>
         {

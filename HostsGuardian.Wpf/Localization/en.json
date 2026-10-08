@@ -573,5 +573,10 @@
   "DeviceFlow.Send": "Send to Engine when ready. This delivers the entire policy, including other saved changes.",
   "DeviceFlow.Review": "Review identity evidence if needed. Check connection/readback to obtain fresh confirmation.",
   "DeviceFlow.ImportWarning": "Import Engine → WPF? Unsynchronized local device changes or unsaved identity edits may be replaced. Deleted registrations will not be restored. Local global domain choices are kept.",
-  "DeviceFlow.SaveFirst": "Save identity changes locally before sending the complete policy."
+  "DeviceFlow.SaveFirst": "Save identity changes locally before sending the complete policy.",
+  "Enforcement.Refresh": "Check enforcement binding",
+  "Enforcement.Verified": "Device binding verified; matching rules can apply while evidence is fresh. DNS coverage is not proven.",
+  "Enforcement.Stale": "Device binding expired; device rules cannot currently be confirmed.",
+  "Enforcement.Unknown": "Device binding unknown; registration alone does not enable device rules.",
+  "Enforcement.Conflict": "Conflicting identity evidence; device rules cannot safely target this device."
 }

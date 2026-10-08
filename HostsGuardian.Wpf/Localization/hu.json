@@ -573,5 +573,10 @@
   "DeviceFlow.Send": "Ha készen áll, küldje el az Engine-nek. Ez a teljes szabályzatot és az egyéb mentett módosításokat is elküldi.",
   "DeviceFlow.Review": "Szükség esetén ellenőrizze az identitás bizonyítékait. Friss megerősítéshez ellenőrizze a kapcsolatot vagy olvassa vissza a szabályzatot.",
   "DeviceFlow.ImportWarning": "Beolvasás: Engine → WPF? A nem szinkronizált eszközmódosítások és a nem mentett identitásadatok lecserélődhetnek. Törölt regisztrációk nem állnak vissza. A helyi globális domainválasztások megmaradnak.",
-  "DeviceFlow.SaveFirst": "A teljes szabályzat elküldése előtt mentse helyben az identitás módosításait."
+  "DeviceFlow.SaveFirst": "A teljes szabályzat elküldése előtt mentse helyben az identitás módosításait.",
+  "Enforcement.Refresh": "Eszköz-hozzárendelés ellenőrzése",
+  "Enforcement.Verified": "Az eszköz-hozzárendelés igazolt; friss bizonyíték mellett alkalmazhatók a szabályok. A DNS-lefedettség nem bizonyított.",
+  "Enforcement.Stale": "Az eszköz-hozzárendelés lejárt; az eszközszabályok jelenleg nem igazolhatók.",
+  "Enforcement.Unknown": "Az eszköz-hozzárendelés ismeretlen; a regisztráció önmagában nem elég az eszközszabályokhoz.",
+  "Enforcement.Conflict": "Ellentmondó identitásbizonyíték; az eszköz nem célozható biztonságosan."
 }

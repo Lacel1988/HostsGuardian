@@ -552,7 +552,7 @@ namespace HostsGuardian.Wpf.ViewModels
         public DeviceVm? SelectedDevice
         {
             get => _selectedDevice;
-            set { if (Set(ref _selectedDevice, value)) RefreshDeviceDetail(); }
+            set { if (Set(ref _selectedDevice, value)) { RefreshDeviceDetail(); OnPropertyChanged(nameof(DeviceEnforcementText)); if(value is not null) _ = RefreshEnforcementAsync(); } }
         }
 
         private string _devicesHint = "";
@@ -1250,6 +1250,54 @@ namespace HostsGuardian.Wpf.ViewModels
             HasUnsavedIdentityEdits ? "DeviceFlow.Save" : _fullPolicyBaseline is null ? "DeviceFlow.Baseline" :
             HasUnsynchronizedDevicePolicy ? "DeviceFlow.Send" : "DeviceFlow.Review");
         private FullPolicyRead? _fullPolicyBaseline;
+        private BindingRead? _enforcementBindings;
+        private FullPolicyRead? _enforcementPolicy;
+        private DateTimeOffset? _enforcementReadAt;
+        private int _enforcementSettingsGeneration=-1;
+        private bool _enforcementRequestPending;
+        public ICommand RefreshEnforcementCommand => new RelayCommand(async () => await RefreshEnforcementAsync());
+        public string DeviceEnforcementText
+        {
+            get
+            {
+                var assessment=DeviceEnforcementReadiness.Assess(SelectedDevice?.DeviceId,
+                    _enforcementPolicy?.Policy ?? FullDnsPolicy.Empty,
+                    _enforcementSettingsGeneration==_engineSettingsGeneration &&
+                        _enforcementPolicy?.InstanceId==_engineStatus.Current?.InstanceId ? _enforcementBindings : null,
+                    _enforcementReadAt,DateTimeOffset.UtcNow);
+                return L.T("Enforcement."+assessment.State)+(assessment.Address is {} address?" · "+address:"");
+            }
+        }
+        private async Task RefreshEnforcementAsync()
+        {
+            if(_enforcementRequestPending || _engineRequestPending)return;
+            _enforcementRequestPending=true;
+            var generation=_engineSettingsGeneration;
+            _enforcementReadAt=null;
+            OnPropertyChanged(nameof(DeviceEnforcementText));
+            try
+            {
+                var initialDraft=PolicyCanonicalization.Canonicalize(_config.DeviceDomainPolicy with
+                    {GlobalBlockedDomains=DomainPolicySelection.ForDns(_config.BlockedDomains).ToImmutableArray()});
+                var policy=await _dnsEngine.ReadFullPolicyAsync(_config.DnsEngine);
+                var bindings=await _dnsEngine.ReadBindingsAsync(_config.DnsEngine);
+                var status=await _dnsEngine.TestConnectionAsync(_config.DnsEngine);
+                if(_engineRequestPending || generation!=_engineSettingsGeneration || !policy.Connection.Ok || !bindings.Connection.Ok || !status.Ok ||
+                    policy.Policy is null || status.Transport?.InstanceId!=policy.Policy.InstanceId ||
+                    status.Transport.PolicyRevision!=policy.Policy.Revision)return;
+                _enforcementPolicy=policy.Policy;_enforcementBindings=bindings.Bindings;
+                _enforcementSettingsGeneration=generation;_enforcementReadAt=DateTimeOffset.UtcNow;
+                // Bootstrap CAS only from an equal committed snapshot, never by replacing the draft.
+                if(_fullPolicyBaseline is null && PolicyBackup.Export(initialDraft)==PolicyBackup.Export(policy.Policy.Policy))
+                    _fullPolicyBaseline=policy.Policy;
+                var draft=PolicyCanonicalization.Canonicalize(_config.DeviceDomainPolicy with
+                    {GlobalBlockedDomains=DomainPolicySelection.ForDns(_config.BlockedDomains).ToImmutableArray()});
+                _engineStatus.Complete(status,PolicyBackup.Export(draft)==PolicyBackup.Export(policy.Policy.Policy)?policy.Policy.Revision:null);
+                ObserveConnection(status);
+            }
+            catch { _enforcementReadAt=null; }
+            finally { _enforcementRequestPending=false; UpdateDnsEngineStatusText(); OnPropertyChanged(nameof(DeviceEnforcementText)); }
+        }
         public ICommand LoadFullPolicyCommand { get; }
         public ICommand ExplainSelectedPolicyCommand { get; }
         private DeviceDomainRuleVm? _selectedDeviceDomain;
@@ -1424,6 +1472,7 @@ namespace HostsGuardian.Wpf.ViewModels
             }
             catch { LastError = L.T("Full policy could not be read; local draft not synchronized."); ObservePolicyFailure(true); }
             finally { _engineRequestPending = false; UpdateDnsEngineStatusText(); }
+            await RefreshEnforcementAsync();
         }
 
         // ===================== DNS ENGINE ACTIONS =====================
@@ -1431,6 +1480,7 @@ namespace HostsGuardian.Wpf.ViewModels
         private void UpdateDnsEngineStatusText()
         {
             foreach(var device in Devices)device.RefreshTypePresentation();
+            OnPropertyChanged(nameof(DeviceEnforcementText));
             OnPropertyChanged(nameof(DeviceWorkflowText));OnPropertyChanged(nameof(DeviceWorkflowBrush));OnPropertyChanged(nameof(DeviceNextStep));
             DnsEngineStatusText = L.F("Engine: {0} · Management: {1} · DNS: {2} · Filtering: {3} · Policy: {4} · Upstream: {5}",
                 L.T(_engineStatus.EngineHost), L.T(_engineStatus.Management), L.T(_engineStatus.DnsService),
@@ -1537,7 +1587,7 @@ namespace HostsGuardian.Wpf.ViewModels
                 _configService.Save(_config);
                 if (_fullPolicyBaseline == null) { LastError = L.T("Read Engine device policy before sending the draft."); _engineStatus.Complete(new(ConnectionState.Incompatible, LastError)); ObservePolicyFailure(true); return; }
                 var outgoing = PolicyCanonicalization.Canonicalize(_config.DeviceDomainPolicy with { GlobalBlockedDomains = domains.ToImmutableArray() });
-                var confirmation = await _dnsEngine.ReplaceFullPolicyAsync(_config.DnsEngine, new(_fullPolicyBaseline.Revision, outgoing, _fullPolicyBaseline.InstanceId));
+                var confirmation = await _dnsEngine.ReplaceFullPolicyFromBaselineAsync(_config.DnsEngine, _fullPolicyBaseline, outgoing);
                 if (generation != _engineSettingsGeneration) return;
                 var selectionUnchanged = domains.SequenceEqual(DomainPolicySelection.ForDns(_config.BlockedDomains)) &&
                     System.Text.Json.JsonSerializer.Serialize(outgoing) == System.Text.Json.JsonSerializer.Serialize(

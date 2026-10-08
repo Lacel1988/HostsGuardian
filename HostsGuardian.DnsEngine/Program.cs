@@ -44,9 +44,11 @@ try
     // Scope approval must use restored registrations, not the pre-start empty snapshot.
     api.InitializePolicyForStartup();
     var monitorPath = Environment.GetEnvironmentVariable("HOSTSGUARDIAN_MONITOR_STATUS_FILE");
+    var evidenceAge=ValidatedBindingProducer.ParseEvidenceAge(Environment.GetEnvironmentVariable("HOSTSGUARDIAN_BINDING_MAX_AGE_SECONDS"));
+    if(evidenceAge==TimeSpan.Zero)EngineLog.Failure("Binding","Invalid freshness setting; passive bindings disabled; DNS remains available");
     var bindingProducer=new ValidatedBindingProducer(dns.RequestProcessor.Bindings,
         ()=>dns.PolicyState.GetSnapshot().Policy ?? HostsGuardian.Core.Models.FullDnsPolicy.Empty,
-        HostsGuardian.Core.Services.PassiveIdentityEvidence.ReadBindingEvidence);
+        HostsGuardian.Core.Services.PassiveIdentityEvidence.ReadBindingEvidence,maximumEvidenceAge:evidenceAge);
     var validatorSocket=Environment.GetEnvironmentVariable("HOSTSGUARDIAN_VALIDATOR_SOCKET");
     var activeScope=ActiveValidationScope.Parse(Environment.GetEnvironmentVariable("HOSTSGUARDIAN_ACTIVE_VALIDATION"),
         Environment.GetEnvironmentVariable("HOSTSGUARDIAN_ACTIVE_VALIDATION_DEVICE_IDS"),

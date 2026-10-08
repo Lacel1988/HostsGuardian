@@ -416,7 +416,7 @@ internal static class Phase5DTests
                 "Production WPF must retain one passive expiration timer with disposal");
             var commands = source.Substring(source.IndexOf("private async void TestDnsEngine()", StringComparison.Ordinal));
             commands = commands[..commands.IndexOf("// ===================== LOG COMMAND", StringComparison.Ordinal)];
-            Check(!commands.Contains("Task.Run") && commands.Contains("ReplaceFullPolicyAsync") && commands.Contains("confirmation.Readback?.Revision") && commands.Contains("_fullPolicyBaseline.Revision"), "WPF ignores confirmed response");
+            Check(!commands.Contains("Task.Run") && commands.Contains("ReplaceFullPolicyFromBaselineAsync") && commands.Contains("confirmation.Readback?.Revision") && commands.Contains("_fullPolicyBaseline, outgoing"), "WPF ignores confirmed response");
         });
         await asyncTest("Phase5D management bind failure does not start DNS or retain resources", async () =>
         {

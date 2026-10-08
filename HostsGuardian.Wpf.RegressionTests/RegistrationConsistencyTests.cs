@@ -47,6 +47,17 @@ internal static class RegistrationConsistencyTests
   vm.PushDnsCommand.Execute(null);Wait(vm);
   Check(handler.LastReplace?.Policy.Devices.Single().DeviceId==saved.DeviceId && handler.Policy.Devices.Single().Metadata!.Alias==saved.Metadata.Alias,"Complete delivery omitted registration/metadata");
   Check(vm.DeviceWorkflowState=="Confirmed","Verified delivery missing confirmed state");
+  typeof(MainViewModel).GetField("_fullPolicyBaseline",System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic)!.SetValue(vm,null);
+  vm.RefreshEnforcementCommand.Execute(null);
+  Check(!vm.HasUnsynchronizedDevicePolicy && vm.DeviceWorkflowState=="Confirmed","Equal committed readback did not bootstrap cold CAS baseline");
+  Check(vm.DeviceEnforcementText.Contains(HostsGuardian.Wpf.Localization.LocalizationService.T("Enforcement.Unknown")),"Registration alone claimed enforcement");
+  handler.Bindings=new(1,[new("192.0.2.11",null,saved.DeviceId,"Fixture kernel confirmation",DateTimeOffset.UtcNow,DateTimeOffset.UtcNow.AddSeconds(10),true){MacEvidence=saved.Mac,Interface="fixture0"}]);
+  vm.RefreshEnforcementCommand.Execute(null);
+  Check(vm.DeviceEnforcementText.Contains(HostsGuardian.Wpf.Localization.LocalizationService.T("Enforcement.Verified")),"WPF omitted confirmed binding");
+  handler.Bindings=handler.Bindings with {Observations=[handler.Bindings.Observations[0] with{ExpiresAtUtc=DateTimeOffset.UtcNow.AddSeconds(-1)}]};
+  vm.RefreshEnforcementCommand.Execute(null);
+  Check(vm.DeviceEnforcementText.Contains(HostsGuardian.Wpf.Localization.LocalizationService.T("Enforcement.Stale")),"Expired binding remained enforceable");
+  Console.WriteLine("PASS WPF distinguishes saved registry from current Verified/Stale/Unknown enforcement binding");
   var projected=DeviceIdentityProjection.Apply([observation],handler.Policy).Single();
   Check(projected.Identity!.State=="Registered" && projected.Identity.FriendlyName==saved.Metadata.Alias && projected.Identity.DeviceType=="TV","Delivered policy cannot project identity to Monitor");
   handler.Fail=true;vm.PushDnsCommand.Execute(null);Wait(vm);
@@ -81,6 +92,7 @@ internal static class RegistrationConsistencyTests
  {
   public bool Fail;
   public FullDnsPolicy Policy=FullDnsPolicy.Empty;public long Revision=1;public FullPolicyReplace? LastReplace;
+  public BindingRead Bindings=new(0,[]);
   private readonly JsonSerializerOptions _options=new(){PropertyNamingPolicy=JsonNamingPolicy.CamelCase,PropertyNameCaseInsensitive=true};
   protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,CancellationToken token)
   {
@@ -89,6 +101,7 @@ internal static class RegistrationConsistencyTests
     "/health"=>new{engine="HostsGuardian.DnsEngine",apiVersion=1},
     "/v2/capabilities"=>new{supportedPolicySchemas=new[]{2,3},policySchemaVersion=2,fullPolicyReadback=true,optimisticConcurrency=true},
     "/v2/policy"=>new FullPolicyRead(Revision,Policy,"fixture-instance"),
+    "/v2/bindings"=>Bindings,
     "/dns/status"=>new DnsServiceStatus{Implementation="HostsGuardian.DnsEngine",InstanceId="fixture-instance",DnsPort=53,ApiPort=3000,PolicyRevision=Revision,PolicyLoaded=true,FilteringEnabled=true,PolicySchemaVersion=Policy.SchemaVersion},
     "/v2/policy/replace"=>await Replace(request,token),_=>throw new Exception("Unexpected fixture endpoint")};
    return new(HttpStatusCode.OK){Content=new StringContent(JsonSerializer.Serialize(body,_options))};

@@ -257,6 +257,18 @@ public sealed class DnsEngineService
         catch { return (new(ConnectionState.Incompatible, "Malformed full-policy response"), null); }
     }
 
+    // Refresh the CAS token without importing over the user's draft. Only an unchanged
+    // committed baseline permits delivery after a restart; concurrent edits still fail closed.
+    public async Task<FullPolicyConfirmation> ReplaceFullPolicyFromBaselineAsync(DnsEngineConfig cfg,
+        FullPolicyRead baseline, FullDnsPolicy outgoing, CancellationToken ct = default)
+    {
+        var current = await ReadFullPolicyAsync(cfg, ct);
+        if (!current.Connection.Ok || current.Policy is null) return new(current.Connection, null, false);
+        if (JsonSerializer.Serialize(current.Policy.Policy, FullOptions) != JsonSerializer.Serialize(baseline.Policy, FullOptions))
+            return new(new(ConnectionState.EngineError, "Engine policy changed; read and review before sending the draft"), current.Policy, false);
+        return await ReplaceFullPolicyAsync(cfg, new(current.Policy.Revision, outgoing, current.Policy.InstanceId), ct);
+    }
+
     public async Task<FullPolicyConfirmation> ReplaceFullPolicyAsync(DnsEngineConfig cfg, FullPolicyReplace request, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(request.ExpectedInstanceId)) return new(new(ConnectionState.InvalidSettings, "Read Engine instance before replacing policy"), null, false);

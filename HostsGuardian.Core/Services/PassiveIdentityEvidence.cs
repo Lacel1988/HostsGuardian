@@ -10,7 +10,7 @@ public static class PassiveIdentityEvidence
     private static BindingEvidenceRead BindingCached=new(default,false,[]);
     // The same bounded kernel read feeds diagnostics and binding; ARP cache-only fallback is not trusted.
     public static BindingEvidenceRead ReadBindingEvidence()
-    { lock(Gate) { Read(); return BindingCached; } }
+    { lock(Gate) { Read(TimeSpan.FromSeconds(2)); return BindingCached; } }
     public static BindingEvidenceRead ParseBindingNeighbours(string json,DateTimeOffset now)
     {
         try {
@@ -34,11 +34,13 @@ public static class PassiveIdentityEvidence
             return new(now,true,bindingRows.ToArray());
         } catch(Exception e) when(e is System.Text.Json.JsonException or InvalidOperationException or ArgumentException) {return new(now,false,[]);}
     }
-    public static NetworkIdentityEvidence[] Read()
+    public static NetworkIdentityEvidence[] Read() => Read(TimeSpan.FromSeconds(15));
+    private static NetworkIdentityEvidence[] Read(TimeSpan maximumCacheAge)
     {
         lock(Gate)
         {
-            if(DateTimeOffset.UtcNow-ReadAt<TimeSpan.FromSeconds(15))return Cached;
+            var age=DateTimeOffset.UtcNow-ReadAt;
+            if(age>=TimeSpan.Zero && age<maximumCacheAge)return Cached;
             ReadAt=DateTimeOffset.UtcNow;return Cached=ReadUncached();
         }
     }
