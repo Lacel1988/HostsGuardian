@@ -2,100 +2,87 @@
 
 **[English](README.md) | [Magyar](README.hu.md)**
 
-Saját DNS-szűrési, szabálykezelési és diagnosztikai platform a teljes helyi hálózat számára, C#/.NET alapon, Windows WPF Control Centerrel és natív Linux Monitorral.
+C#/.NET DNS-policy projekt Windows WPF Control Centerrel, Linux DNS Engine-nel és Linux diagnosztikai Monitorral.
 
-> **A v0.4.0 fejlesztői kiadás, nem éles használatra kész hálózati készülék.** A HostsGuardian még 1.0 előtti állapotban van. A forráskiadás tartalmazza az elfogadott platformalapokat; a teljes LAN-lefedettség és az aktív validáció továbbra is emberi elfogadást igényel.
+> **v0.4.0 — pre-1.0, fejlesztés alatt.** A globális DNS Block/Restore valódi végponti bizonyítékkal rendelkezik. A megbízható eszközspecifikus enforcement és teljes LAN-lefedettség nincs igazolva. Nem kész hálózatvédelmi berendezés.
 
-**Az Engine végrehajt. A Monitor megfigyel. A WPF-ben a felhasználó dönt.** A felhasználói döntések, a hálózati bizonyítékok és a szabályérvényesítés elkülönülnek. A beállított DNS-útvonal nem bizonyítja a ténylegesen megfigyelt DNS-útvonalat.
+## Cél és architektúra
 
-## Architektúra
+**Az Engine végrehajt. A Monitor megfigyel. A WPF dönt.** Regisztráció, jelenlét, igazolt identitás, policy-küldés, DNS-válasz és alkalmazásblokkolás külön állapot.
 
-```mermaid
-flowchart LR
-    User[Felhasználói döntések] --> WPF[Windows WPF Control Center]
-    WPF -->|Hitelesített HTTPS Management API| Engine[Linux DNS Engine]
-    LAN[LAN kliensek] -->|IPv4 / IPv6 UDP és TCP DNS| Engine
-    Engine -->|Engedélyezett lekérdezések| Upstream[Beállított upstream DNS]
-    Engine -->|Védett helyi pillanatképek| Monitor[Linux Monitor és Topology]
-    Engine -->|Hitelesített helyi IPC| Validator[NetworkValidator]
-    Systemd[systemd / PID1] -->|Root tulajdonú socket és szolgáltatáshatár| Validator
-    Validator -.->|Korlátozott validáció külön engedélyezés után| LAN
-    Core[Közös Core szerződések] -.-> WPF
-    Core -.-> Engine
-```
+A WPF kezeli a regisztrációt, felhasználói nevet/típust és döntéseket; hitelesített HTTPS-en kapcsolódik az Engine-hez. A Monitor identitás/policy tekintetében csak olvas. A NetworkValidator korlátozott belső helper, nem negyedik vezérlőkomponens. DNS nem halad át WPF-en; az Engine életciklusát systemd kezeli.
 
-| Összetevő | Feladat |
+**Az Engine DNS-szerver, nem minden kliens kötelező gatewaye.** Beállított DNS nem bizonyít tényleges DNS-útvonalat. A szűrés nem garantálja meglévő kapcsolat megszakítását, és nem zárja ki az alternatív resolvert, titkosított DNS-t vagy cache-t. Az architektúra diagramja az angol README-ben található.
+
+## Képességek
+
+| Képesség | Állapot |
 |---|---|
-| `HostsGuardian.Wpf` | Szabályzattervezetek, explicit küldés, felhasználói eszközregisztráció/név/típus és döntések. |
-| `HostsGuardian.DnsEngine` | DNS-végrehajtás, szűrés, szabályzatmentés, elemzés és hitelesített felügyelet. |
-| HostsGuardian Monitor (`linux-monitor`) | Helyi üzemeltetés, csak olvasható eszközdiagnosztika és bizonyítékalapú topológia. |
-| NetworkValidator (`network-validator`) | Elkülönített, szűk jogosultságú hálózati validációs segéd; nem tulajdonosa a szabályzatnak. |
-| `HostsGuardian.Core` | Közös szerződések, tartományi szabályok, korreláció és megjelenítési bemenetek. |
+| WPF indulás, Domains/Devices, EN/HU | VERIFIED: emberi felülvizsgálat, kijelölt csomag elindult. |
+| Globális WPF Block → valódi sinkhole → Restore | VERIFIED: 2026. október 13. |
+| IPv4/IPv6 UDP/TCP, upstream | IMPLEMENTED, korábbi deployment/readiness; nem teljes LAN. |
+| Registry, név/típus, device policy | IMPLEMENTED; megbízható éles szelektív enforcement PARTIAL / UNVERIFIED. |
+| DeviceId, passzív evidence, TTL/konfliktus | IMPLEMENTED; freshness/receiver KNOWN ISSUES. |
+| Revision/CAS, Safe Mode, persistence | IMPLEMENTED, regresszió és korábbi runtime-bizonyíték. |
+| Csoport/profil/schedule/service catalog | IMPLEMENTED szerződés/evaluator; teljes valódi eszközteszt UNVERIFIED. |
+| Notification/audit/log | IMPLEMENTED / PARTIAL; rekord nem bizonyít natív kézbesítést. |
+| Monitor blokkolási adatcsatorna | VERIFIED; GUI-esemény UNVERIFIED. |
+| Receiver recovery, bounded refresh, új telemetry/recovery | Helyi candidate; e dokumentációs checkpoint nem publikálja forrásként és nem állítja telepítettnek. |
+| Teljes LAN / Network Enforcement | BLOCKED: coverage és kötelező chokepoint nem igazolt. |
 
-**A LAN DNS-forgalma nem halad át a WPF-en.** A kliensek közvetlenül az Engine-t kérdezik. Az önálló Engine-szolgáltatást a systemd kezeli; egyik GUI bezárása sem állítja le a DNS-t. A Monitor életciklusműveletei külön megerősített systemd/polkit-műveletek.
+Részletes forrás/teszt és megőrzött koncepció: [Architecture and roadmap](docs/ARCHITECTURE_AND_ROADMAP.md).
 
-## A forráskiadás képességei
+## Technológia és algoritmusok
 
-- **Saját dual-stack DNS:** UDP és TCP IPv4-en és IPv6-on, közös szabályértékelés, korlátozott párhuzamosság, véges upstream újrapróbálkozás és explicit fallback.
-- **Szabályzat és helyreállítás:** tartós globális/eszközönkénti szabályok, elvárt revízióhoz és Engine-példányhoz kötött küldés, kanonikus visszaolvasás és Emergency Safe Mode. A kapcsolat önmagában nem jelent szinkronizációt; a helyi változások explicit küldésig tervezetek. Sikertelen mentéskor az előző revízió marad érvényben.
-- **Regisztrált eszköztár:** változtathatatlan `DeviceId`, felhasználói név/típus és metaadatok megfigyelések hiányában is megmaradnak. Az elfelejtés explicit művelet, nem leválasztás vagy tiltás. A WPF import után egyezteti a regisztrációkat, hogy ne maradjon árva Ismert sor.
-- **Magyarázható fingerprinting:** támogatott mDNS/SSDP/hostnév-bizonyítékból típus, bizonyosság és eredet származik. Az elavult megfigyelés nem jelent Online állapotot, és a korlátozott megőrzési időn belül nem törli az utolsó megbízható következtetést. A felhasználó által megerősített típus elsőbbséget élvez; az ellentmondás látható marad.
-- **Külön felderítés és lefedettség:** a jelenlét, identitás, DNS-aktivitás, lefedettség és resolver-útvonal külön bizonyítékokra épül. Az ismeretlen/ideiglenes források kiválaszthatók. Egy megfigyelt DNS-kérés az Engine használatát bizonyítja, nem minden kérés kizárólagos lefedettségét.
-- **Validált binding-alap:** aktuális, lejáró IP–MAC bizonyíték oldhat fel regisztrált identitást a szabályérvényesítéshez. Az IP nem állandó identitás; elavult, ellentmondó vagy többértelmű adat nem jogosít bindingra. Hiányzó identitásnál globális szabály érvényesül.
-- **Windows Control Center:** sötét/zöld felület, élő és tartós EN/HU nyelvváltás, kontextuális tooltip, Policy Preview/Why Blocked, értesítések, audit és szűrés után is legújabb-elöl napló. A natív Windows toast-küldés/navigáció és az ütemezési figyelmeztetés logikája létezik; a valós értesítési/ütemezési elfogadás külön feladat.
-- **WPF → Engine → Monitor identitásút:** a regisztráció/metaadat WPF-tervezetbe kerül, teljes szabályzattal explicit elküldhető, az Engine tartósan menti, majd a diagnosztikához korrelálja. A Monitor csak olvassa a nevet; a megfigyelt hostnév elkülönül a felhasználói elnevezéstől.
-- **Linux Monitor:** egészség, DNS-aktivitás/eredmények, upstream késleltetés, terhelés, incidensek és tömör eszköz/forrás-diagnosztika; nincs átnevezés, csoport- vagy szabályszerkesztés. A grafikonelőzmény és a publikáció korlátozott.
-- **Grafikus Topology:** WHO / PRESENCE / ACCESS / DNS / BINDING / WHY, közös vektorikonok és kiválasztható részletek. A megfigyelt/bizonyított és következtetett kapcsolatok elkülönülnek. Wi-Fi/Ethernet, AP és hozzáférési kapcsolatok infrastruktúra-bizonyíték nélkül **Ismeretlenek**.
-- **Telepítési és csomagellenőrzés:** időkorlátos jelölt/visszaállítási readiness megőrzött diagnosztikával, független funkcionális IPv4/IPv6 UDP/TCP-próbák, külön tulajdonos/hitelesítés/megőrzés/segéd ellenőrzések, LF végrehajtható launcherek és közvetlen csomagindítási smoke teszt.
+.NET 8/C#, WPF, saját DNS/HTTPS Engine; Python GTK/PyGObject/Cairo; systemd service/socket; konzolos regresszió és Python unittest.
 
-**Megfigyelés ≠ Identitás ≠ Regisztrált eszköztár ≠ Szabályérvényesítési binding.** Offline nem jelent elfelejtett eszközt; a gyorsítótárazott szomszédadat nem bizonyít online jelenlétet. A korreláció routergyártótól független. Későbbi opcionális router/AP adatforrások kiegészíthetik, de nem előfeltételek.
+Immutable policy snapshot/CAS: `EnginePolicyState.cs`, `PolicyApplicationService.cs`. Determinisztikus precedence: Device override → aktív profil/schedule → csoport → globális, azonos szinten Block győz (`PolicyDecision.cs`). Normalizált pontos és ponttal elválasztott aldomainillesztés (`DevicePolicyEvaluator.cs`). Korlátozott konkurencia/timeout (`DnsProxyServer.cs`, `DnsRequestProcessor.cs`). Evidence-alapú identitás, történelmi IP önmagában nem elég (`AddressBindingStore.cs`).
 
-A réteges szabályzatséma és a szolgáltatásdefiníciók/csoportok/profilok/ütemezések szerkesztői determinisztikus forrástesztekkel rendelkeznek. A kiadás **nem állítja** e későbbi roadmap-képességek, a randomizált MAC-összekapcsolás vagy az ideiglenes hozzáférés-hosszabbítás valós LAN-elfogadásának befejezését. [Szabályzatszemantika](docs/roadmap-policy-program.md).
+Adaptív Simple/Indexed, tanuló service discovery, SQLite/WAL nincs megvalósítottként állítva. Fix index és bounded queue külön helyi candidate.
 
-## Biztonság és jogosultságok elkülönítése
+## Valódi DNS-bizonyíték
 
-A felügyelet **hitelesített HTTPS-t** használ. Windows alatt a hitelesítő adatokat DPAPI védi; a tanúsítványfelvétel explicit és függetlenül ellenőrzött. Nincs csendes bizalomfelvétel vagy HTTP-visszalépés. A hitelesítés a hitelesítő adat birtoklását bizonyítja, nem a végrehajtható állomány identitását.
+2026. október 13-án kontrollált Windows kliens közvetlenül az Engine-t kérdezte `example.com`-ról:
 
-Az **Engine kizárólag `CAP_NET_BIND_SERVICE`** jogosultságot tart meg. Egyedül a NetworkValidator számára készült **`CAP_NET_RAW`** jogosultságú, korlátozott systemd-szolgáltatás; a Python interpreter nem kap fájlszintű capabilityt. PID1 hozza létre a root tulajdonú Unix listenert védett hierarchiában. A segéd peer credential, rögzített élő Engine MainPID és peer-pidfd életciklus alapján engedélyez; a publikációs útvonalak root-védettek.
+| Fázis | Válasz |
+|---|---|
+| Baseline | NOERROR: `104.20.23.154`, `172.66.147.243`. |
+| WPF Domains Block, revision 46 | NOERROR: `0.0.0.0`, TTL 60. |
+| Monitor adat | GlobalBlock, blokkolt kérés, DeviceId Unknown. |
+| WPF Restore, revision 47 | Normál válasz és eredeti policy-szemantika visszaállt. |
 
-Az aktív ARP-validáció **alapértelmezetten KI** van kapcsolva, és emberi valós LAN-elfogadásig így marad. A kérések pontos célra irányulnak, korlátozottak, és hiba esetén nem adnak bindingot; nincs hálózatsöprés vagy általános packet API. A DNS a segéd hiányában is működik, friss validált binding létrehozása nélkül. Az ARP-adat nem kriptográfiai identitás. [Bizalmi határ és korlátok](network-validator/IPC-SECURITY.md).
+A felhasználó Lenovo és mobil böngészőből is sikeres Domains-blokkolást jelzett; ez emberi megfigyelés, nem rögzített eszközspecifikus acceptance. Revision miatt a fájlhash változhat; Restore az eredeti policy-tartalomra vonatkozik az elvárt revision-metaadat kivételével.
 
-A szabályzat, hitelesítő adatok, tanúsítványok, privát kulcsok és gépspecifikus telepítési bemenetek nem repository-eszközök. A forrás build/teszt nem engedélyez éles telepítést, szolgáltatásmódosítást vagy hálózati konfigurációt.
+Bizonyított: globális szűrés az Engine-hez érkező kérésre. Nem bizonyított: Devices enforcement, automatikus identitás megbízhatósága, teljes LAN, DoH-ellenállás, Monitor GUI-esemény.
 
-## Képernyőképek
+## Telepítés, konfiguráció és tesztek
 
-A megőrzött **v0.3.0** képek a korábbi elfogadott felületet mutatják, nem az új topológia/eszköznézetet. A WPF-kép regressziós fixture; a Monitor-képek történeti, csak olvasható runtime-felvételek. Nem bizonyítják az aktuális DNS-lefedettséget.
-
-![Magyar WPF Control Center — történeti fixture](docs/assets/v0.3.0/wpf-control-center-hu.png)
-
-![Unified Linux Monitor — történeti Overview](docs/assets/v0.3.0/monitor-overview.png)
-
-[Képek eredete](docs/assets/v0.3.0/README.md). Friss éles képek a vizuális elfogadás után készülhetnek.
-
-## Ellenőrzés és build
-
-A kiadás ellenőrzései az egyeztetett, autoritatív **v0.4.0** forráson futnak. A pontos eredményeket és indokolt platformkihagyásokat a [kiadási checkpoint](docs/checkpoint-v0.4.0.md) tartalmazza. Az izolált GTK fixture és csomag smoke teszt nem helyettesíti az emberi éles vizuális elfogadást.
+A történelmi deployment-útmutatókat az adott release-hez ellenőrizni kell. [Monitor útmutató](linux-monitor/README.md). Credential/certificate/gépspecifikus config ne kerüljön Gitbe. WPF: támogatott HTTPS enrollment; draft és explicit delivery külön. A kliensnek ténylegesen ezt a resolvert kell választania; e dokumentáció nem engedélyez hálózati változtatást.
 
 ```powershell
-dotnet build HostsGuardian.sln -t:Rebuild -c Release
+dotnet build HostsGuardian.sln -c Release
+dotnet run --project HostsGuardian.Wpf -c Release
 dotnet run --project HostsGuardian.RegressionTests -c Release
 dotnet run --project HostsGuardian.Wpf.RegressionTests -c Release
-python -B development/orchestrator/run-tests.py
 ```
 
-A `linux-monitor` könyvtárból: `python3 -B -m unittest discover -v`; a `network-validator` és `development/roadmap` könyvtárból ugyanígy. A Linux GTK-tesztekhez PyGObject/GTK4 és grafikus fixture, a Topologyhoz `python3-cairo` és `python3-gi-cairo` kell. A Windows WPF .NET 8-at és Windowst igényel. A Monitor-csomag builder közvetlenül indítja a kicsomagolt launchert `--smoke-check` módban, ablak és szolgáltatásvezérlés nélkül.
+Windows/.NET 8 WPF szükséges. Python: külön `network-validator`, `linux-monitor`, `development/roadmap` könyvtárban `python3 -B -m unittest discover -v`. GTK-hoz Linux grafikus függőségek szükségesek; skip nem végrehajtott GUI-teszt. Development build nem automatikusan elfogadott release.
 
-A Development Orchestrator külön fejlesztői eszköz, nem a termék runtime-szolgáltatása. Hordozható példakonfigurációját helyileg másolni és beállítani kell. [Eszközleírás](development/orchestrator/README.md).
+Megőrzött candidate: Core/Engine 332 PASS; WPF 33 PASS; Windows helper 82 PASS + 1 skip; recovery 36 PASS; Monitor 60 PASS + 22 skip. Linux fixture: Core/Engine 332, helper 83, recovery 36 PASS; Monitor 63 PASS + 19 skip. Ezek korábbi candidate-regressziók, nem e dokumentációs commit új tesztjei vagy produkciós acceptance.
 
-## Korlátok és roadmap
+## Biztonság
 
-- **1.0 előtti állapot:** a teljes LAN/router-DHCP és alternatív resolver-útvonal lefedettsége nem teljes. A DHCP-beállítás önmagában nem bizonyít lefedettséget.
-- **Aktív validáció:** a telepítési alap elfogadott; az aktív ARP kikapcsolva marad. Engedélyezése előtt emberi elfogadás kell.
-- **Identitás:** a randomizált MAC-folytonosság nem automatikus; nincs IP/név-alapú összevonás. Az ismeretlen/ideiglenes eszközök teljes értékűek. Az IPv6 DNS működik, de IPv6 aktív eszközbinding nincs igazolva.
-- **Szabályérvényesítés:** a teljes eszközönkénti lefedettség friss validált bindingtól és a tényleges DNS-útvonaltól függ. A gyorsítótárazott alkalmazásmunkamenet nem feltétlenül ér véget azonnal DNS-szabályváltáskor.
-- **Topológia:** a hozzáférési technológia/AP/SSID/port és kizárólagos DNS-lefedettség bizonyíték nélkül Ismeretlen; opcionális infrastruktúra-integráció későbbi munka.
-- **Elfogadás:** természetes forgalom/incidensek, tényleges eszközszűrés, natív toast/ütemezési UX és a Monitor-csomagjavítás éles vizuális elfogadása még tartalmaz függő tételeket.
-- **Roadmap:** először kontrollált valós LAN identitás/binding/biztonsági elfogadás; utána szolgáltatáskatalógus/csoportok/ütemezések és értesítések validálása. Ideiglenes hosszabbítás és felhasználói randomizált-MAC összekapcsolás későbbi feladat.
-- A korábbi systemd `NeedDaemonReload` kérdést kivizsgáltuk és az elfogadott telepítéshez tisztáztuk. E forráskiadás nem végez reloadot vagy runtime-módosítást.
+Hitelesített HTTPS/enrollment, revision/instance CAS, PID1/root socket és peer/élő folyamatellenőrzés. Engine CAP_NET_BIND_SERVICE; csak a korlátozott helper kaphat CAP_NET_RAW-t a service-en keresztül. Passzív MAC nem kriptográfiai identitás; teljes IP/MAC megszemélyesítés nem kizárt.
 
-A történeti [v0.3.0 checkpoint](docs/checkpoint-v0.3.0.md) és az aktuális [identitás/binding/topológia-terv](docs/device-identity-validation-program.md) elkülöníti a megvalósítást, fixture-ellenőrzést és emberi elfogadást.
+STALE neighbour nem online bizonyíték. Regisztráció, GUI-kapcsoló, draft és API-siker nem enforcement-bizonyíték.
+
+## Ismert korlátok és prioritások
+
+1. P0: DeviceId, kétklienses szelektív Block/Restore, receiver/freshness race és őszinte WPF állapot.
+2. P1: router/gateway, IPv4/IPv6, alternatív DNS/DoH, vendorfüggetlen coverage/chokepoint.
+3. P2: grafikus blokkesemény, korreláció, retention/audit.
+4. P3: hivatalos WPF csomag, reprodukálható manifest, cleanup/retention.
+
+IPv6 attribúció, natív notification/schedule acceptance, populated device-policy és generikus éles recovery nincs teljesen igazolva. Természetes forgalom/incidens opportunisztikus bizonyíték. systemd reload és történelmi caveat az aktuális deploymentnél ellenőrzendő; e publikálás runtime-ot nem változtat.
+
+**Fejlesztés alatt:** hasznos globális DNS-szűrés igazolt; megbízható általános eszközenforcement a következő acceptance. Nincs új deployment, tag vagy bináris release.
