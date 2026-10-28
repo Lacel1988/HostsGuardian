@@ -124,11 +124,19 @@ public sealed class TcpDnsServer : IAsyncDisposable
                     readDeadline.CancelAfter(TimeSpan.FromSeconds(30));
                     var request = await TcpDnsFraming.ReadAsync(stream, readDeadline.Token).ConfigureAwait(false);
                     if (request == null) break;
-                    var response = await _processor.ProcessAsync(request, DnsRequestContext.From(DnsTransport.Tcp, (System.Net.IPEndPoint)client.Client.RemoteEndPoint!, DateTimeOffset.UtcNow), cancellationToken).ConfigureAwait(false);
+                    var context = DnsRequestContext.From(DnsTransport.Tcp, (System.Net.IPEndPoint)client.Client.RemoteEndPoint!, DateTimeOffset.UtcNow);
+                    var started = System.Diagnostics.Stopwatch.GetTimestamp();
+                    var response = await _processor.ProcessAsync(request, context, cancellationToken).ConfigureAwait(false);
                     if (response == null) break; // No synthetic answer/retry is introduced in this phase.
                     using var writeDeadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
                     writeDeadline.CancelAfter(TimeSpan.FromSeconds(30));
-                    await TcpDnsFraming.WriteAsync(stream, response, writeDeadline.Token).ConfigureAwait(false);
+                    try {
+                        await TcpDnsFraming.WriteAsync(stream, response, writeDeadline.Token).ConfigureAwait(false);
+                        _processor.Observations.Complete(context,"TransportWriteSucceeded",response,System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds);
+                    } catch {
+                        _processor.Observations.Complete(context,"TransportWriteFailed",null,System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds);
+                        throw;
+                    }
                 }
             }
             catch (OperationCanceledException) { } // Idle deadline or Engine shutdown.

@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Collections.Immutable;
 using System.Net;
 using System.Text;
 using System.Text.Json;
@@ -41,6 +42,13 @@ var config = new AppConfig { BlockedDomains = new()
 
 try
 {
+    if(args.Contains("--reliability-benchmarks")) { ReliabilityBenchmarks.Run(); return; }
+    if(args.Contains("--binding-race-tests"))
+    {
+        await PassiveDnsL2Tests.Run(Test,AsyncTest,fixtureRoot);
+        await RequestBindingRefreshTests.Run(AsyncTest,fixtureRoot);
+        Console.WriteLine($"Binding race: {passed} groups PASS");return;
+    }
     if(args.Contains("--active-validation-tests"))
     {
         await ScopedValidationTests.Run(Test,AsyncTest);
@@ -48,6 +56,18 @@ try
         Console.WriteLine($"Scoped validation: {passed} groups PASS");return;
     }
     FingerprintTests.Run(Test);
+    ReliabilityFoundationTests.Run(Test);
+    Test("exact device override restore distinguishes absent and explicit states, preserves unrelated policy", () =>
+    {
+        var id=Guid.NewGuid();var other=Guid.NewGuid();
+        var original=PolicyCanonicalization.Canonicalize(FullDnsPolicy.Empty with {Devices=[new(id,"TV","02:00:00:00:00:01","fixture","User"),new(other,"Other","02:00:00:00:00:02","fixture","User")],GlobalBlockedDomains=["global.invalid"],Overrides=[new(id,"inherit.invalid",DeviceDomainRuleState.Inherit),new(id,"allow.invalid",DeviceDomainRuleState.Allow),new(id,"block.invalid",DeviceDomainRuleState.Block),new(other,"other.invalid",DeviceDomainRuleState.Allow)]});
+        var points=new[]{"absent.invalid","inherit.invalid","allow.invalid","block.invalid"}.Select(d=>new DeviceOverrideRestorePoint(id,d,original.Overrides.FirstOrDefault(o=>o.DeviceId==id && o.Domain==d))).ToArray();
+        var changed=original with {Overrides=original.Overrides.Where(o=>o.DeviceId!=id).Concat(points.Select(p=>new DeviceDomainOverride(id,p.Domain,DeviceDomainRuleState.Block))).ToImmutableArray()};
+        var restored=DeviceOverrideRestore.Apply(changed,points);
+        Check(PolicyBackup.Export(restored)==PolicyBackup.Export(original),"Exact restore changed original semantics");
+        Check(PolicyBackup.Export(DeviceOverrideRestore.Apply(restored,points))==PolicyBackup.Export(original),"Not idempotent");
+        try {DeviceOverrideRestore.Apply(changed,[new(id,"absent.invalid",new(other,"absent.invalid",DeviceDomainRuleState.Block))]);throw new Exception("Cross-device original accepted");}catch(ArgumentException){}
+    });
     Test("shared device type inference preserves uncertainty and user authority", () =>
     {
         Check(DeviceTypes.All.Count == 13 && DeviceTypes.All.Select(t=>t.IconKey).Distinct().Count()==13, "Catalog/icon mismatch");
@@ -226,6 +246,7 @@ try
     });
     await ValidatedBindingTests.Run(Test, AsyncTest, fixtureRoot);
     await PassiveDnsL2Tests.Run(Test, AsyncTest, fixtureRoot);
+    await RequestBindingRefreshTests.Run(AsyncTest, fixtureRoot);
     await NetworkTopologyTests.Run(Test,AsyncTest);
     IntegratedPolicyTests.Run(Test, fixtureRoot);
     RoadmapPolicyTests.Run(Test, fixtureRoot);

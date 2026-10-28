@@ -5,7 +5,7 @@ namespace HostsGuardian.Core.Models
     public sealed class DevicePolicy
     {
         // Azonosítás (egyik elég)
-        public string Ip { get; set; } = "";       // pl "192.168.1.114"
+        public string Ip { get; set; } = "";       // example: "192.0.2.114"
         public string Mac { get; set; } = "";      // pl "AA:BB:CC:DD:EE:FF"
 
         // Felhasználóbarát név

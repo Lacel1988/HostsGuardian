@@ -105,7 +105,7 @@ internal static class RoadmapDataTests
             var read = evidence.Read().Single();
             Check(read.EvidenceTruncated && read.DecisionChain.SequenceEqual(chain.Take(4)) && read.PolicyRevision == decision.Revision, "Request explanation provenance lost or truncation concealed");
             var expired = new DnsObservationStore(); expired.Record(context with { ReceivedAtUtc = now.AddMinutes(-16) }, decision);
-            Check(expired.Read().Length == 0, "Raw DNS evidence exceeded retention");
+            Check(expired.Read().Length == 1, "Wall-clock rollback incorrectly erased newly recorded evidence");
         });
         test("Roadmap network context and health export are read-only and do not claim policy synchronization", () =>
         {

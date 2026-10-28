@@ -4,7 +4,7 @@ import os
 import sys
 import math
 from diagnostics import LiveHistory, graph_scale, WINDOW_SECONDS
-from operations import overview, incident_rows, details_text, confirmation_text
+from operations import overview, incident_rows, details_text, confirmation_text, ActionObservation
 from device_diagnostics import DeviceAwareDiagnostics
 from topology_ui import TopologyView
 from device_diagnostics_ui import DeviceDiagnosticsView
@@ -53,8 +53,9 @@ class SystemdClient:
 
     def control(self, verb):
         method, args = control_request(verb)
-        self.call("/org/freedesktop/systemd1", "org.freedesktop.systemd1.Manager", method, GLib.Variant("(ss)", args), interactive=True)
-        return "Action requested; waiting for observed systemd and Engine state."
+        baseline, _ = self.status()
+        job = self.call("/org/freedesktop/systemd1", "org.freedesktop.systemd1.Manager", method, GLib.Variant("(ss)", args), interactive=True)
+        return dict(baseline=baseline, job=job)
 
 
 class Monitor(Gtk.Application):
@@ -64,6 +65,8 @@ class Monitor(Gtk.Application):
         self.pending = False
         self.closed = False
         self.confirming = False
+        self.action_observation = ActionObservation()
+        self.last_unit = {}
         self.client = None
         self.timer = None
         self.history = LiveHistory()
@@ -331,17 +334,22 @@ class Monitor(Gtk.Application):
                 return False
             self.pending = False
             for button in self.buttons:
-                button.set_sensitive(True)
+                button.set_sensitive(not self.action_observation.active)
             completed(result, error)
             return False
         self.pool.submit(work)
 
     def poll(self):
-        self.run_worker(lambda: self.client.status(), self.show_status)
+        if not self.confirming:
+            self.run_worker(lambda: self.client.status(), self.show_status)
         return not self.closed
 
     def show_status(self, result, error):
         unit, snapshot = ({}, None) if error else result
+        self.last_unit = dict(unit)
+        if self.action_observation.active:
+            self.notice.set_text(self.action_observation.observe(unit))
+            for button in self.buttons:button.set_sensitive(not self.action_observation.active)
         if snapshot is not None and snapshot.get("diagnostics") and snapshot["diagnostics"].get("resources", {}).get("processId") == unit.get("MainPID"):
             self.history.accept(snapshot["diagnostics"])
         else:
@@ -391,7 +399,7 @@ class Monitor(Gtk.Application):
         self.render_diagnostics()
 
     def confirm(self, verb):
-        if self.pending or self.closed or self.confirming:
+        if self.pending or self.closed or self.confirming or self.action_observation.active:
             return
         title, explanation = confirmation_text(verb)
         dialog = Gtk.MessageDialog(application=self, transient_for=self.window, modal=True,
@@ -401,13 +409,21 @@ class Monitor(Gtk.Application):
             box.destroy()
             self.confirming = False
             if answer == Gtk.ResponseType.YES and not self.closed:
+                if self.pending:
+                    self.notice.set_text('Action not sent: another local operation is pending. Please retry after it completes.')
+                    return
+                self.action_observation.begin(verb,self.last_unit)
+                self.notice.set_text(self.action_observation.message)
                 self.run_worker(lambda: self.client.control(verb), self.control_finished)
         self.confirming = True
         dialog.connect("response", response)
         dialog.present()
 
     def control_finished(self, result, error):
-        self.notice.set_text(error or result)
+        if error:self.action_observation.fail(error)
+        elif isinstance(result,dict):
+            self.action_observation.previous_pid=result.get('baseline',{}).get('MainPID',0)
+        self.notice.set_text(error or self.action_observation.message)
         self.poll()
 
     def close_window(self, _window):

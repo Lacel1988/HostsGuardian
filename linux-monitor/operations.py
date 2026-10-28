@@ -1,9 +1,43 @@
 """Presentation of Engine-owned evidence; no service, policy or credential access."""
 from datetime import datetime, timezone
+import time
 from monitor_core import upstream_state, control_request
 
 COMPONENTS = ('Listeners', 'Management', 'Upstream', 'Processing', 'Capacity', 'Persistence')
 STATES = ('Healthy', 'Degraded', 'Critical')
+
+
+class ActionObservation:
+    """GUI-only action feedback; service evidence proves lifecycle, never DNS delivery."""
+    def __init__(self, clock=time.monotonic):
+        self.clock=clock;self.active=False;self.message=''
+
+    def begin(self, verb, unit):
+        control_request(verb)
+        if self.active:raise ValueError('Service action already pending')
+        self.verb=verb;self.previous_pid=unit.get('MainPID',0)
+        self.started=self.clock();self.active=True
+        self.message=f'{verb.capitalize()} requested; waiting for observed systemd state.'
+
+    def fail(self, error):
+        self.active=False;self.message=error;return self.message
+
+    def observe(self, unit):
+        if not self.active:return self.message
+        age=self.clock()-self.started
+        if age<0 or age>=60:
+            return self.fail('Timed out: requested action was not confirmed. Current service state is shown separately.')
+        state=engine_state(unit)
+        if state=='Failed':return self.fail('Service action failed; systemd reports Failed.')
+        confirmed=(self.verb=='stop' and state=='Stopped' or
+                   self.verb=='start' and state=='Running' or
+                   self.verb=='restart' and state=='Running' and type(self.previous_pid) is int and
+                   self.previous_pid>0 and unit.get('MainPID')!=self.previous_pid)
+        if confirmed:
+            if self.verb=='restart':
+                return self.fail('Restart observation: Engine is running with a changed PID. Requested job causality and DNS success are not verified.')
+            return self.fail(f'{self.verb.capitalize()} confirmed by observed systemd state; DNS query success is not verified.')
+        return self.message
 
 
 def engine_state(unit):

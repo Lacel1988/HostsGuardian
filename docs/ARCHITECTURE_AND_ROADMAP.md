@@ -2,6 +2,8 @@
 
 **Review date: 2026-10-13. Documentation checkpoint, not deployment acceptance.**
 
+> Historical architecture review. Version accounting, candidate-only wording and test totals below describe the October 13 checkpoint, not the current working tree. The October 28 source candidate includes the referenced recovery/index/diagnostic code. See [current publication verification](publication-verification-2026-10-28.md) for fresh tests and precise provenance limits. No new production acceptance is implied.
+
 ## Evidence rules and version accounting
 
 IMPLEMENTED means source exists; VERIFIED requires observed runtime behavior; PARTIAL means a working subset; UNVERIFIED means insufficient runtime proof; BLOCKED means a known prerequisite is missing. Tests do not turn candidate code into production evidence.

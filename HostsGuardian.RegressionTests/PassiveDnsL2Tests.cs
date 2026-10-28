@@ -34,6 +34,12 @@ internal static class PassiveDnsL2Tests
         BindingEvidenceRead Neighbours(params NetworkIdentityEvidence[] rows)=>new(now,true,rows.Length==0?[E()]:rows);
         PassiveDnsL2Claim Claim(string a=address,string m=mac)=>new(a,m,"fixture0",now,now.AddSeconds(10));
         PassiveDnsL2Read Read(string requestId="fixture",params PassiveDnsL2Claim[] claims)=>new(requestId,"PassiveDnsL2",true,now,"Fixture L2 only",claims.Length==0?[Claim()]:claims);
+        test("Capture generation metadata unavailable malformed or zero never authorizes binding",()=>{
+            var capture=Read() with{CaptureInstance=new string('a',32),InterfaceGeneration=1,CaptureState="READY"};
+            Check(PassiveDnsL2BindingProducer.Build(policy,Neighbours(),capture,"fixture",now).Length==1,"Current generation rejected");
+            foreach(var invalid in new[]{capture with{CaptureState="UNAVAILABLE"},capture with{InterfaceGeneration=0},capture with{CaptureInstance="invalid"}})
+                Check(PassiveDnsL2BindingProducer.Build(policy,Neighbours(),invalid,"fixture",now).Length==0,"Invalid capture authorized identity");
+        });
         test("Passive DNS L2 supports fresh received frame despite old STALE neighbour without renewing confirmation",()=>{
             var neighbours=Neighbours();Check(ValidatedBindingProducer.Build(policy,neighbours,now).Length==0,"STALE independently trusted");
             var rows=PassiveDnsL2BindingProducer.Build(policy,neighbours,Read(),"fixture",now);

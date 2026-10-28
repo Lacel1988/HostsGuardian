@@ -22,6 +22,7 @@ public sealed class EngineConnectionWindow : Window
     private string _certificate;
     private bool _replace, _clear, _endpointChanged;
     private int _generation;
+    public bool SaveSucceeded { get; private set; }
     public EngineConnectionWindow(AppConfig config, ConfigService service)
     {
         _config = config; _service = service; _certificate = config.DnsEngine.TrustedCertificate;
@@ -149,7 +150,7 @@ public sealed class EngineConnectionWindow : Window
                 var migrationConfig = JsonSerializer.Deserialize<AppConfig>(JsonSerializer.Serialize(_config))!;
                 migrationConfig.DnsEngine = draft;
                 _service.MigrateCredential(migrationConfig, _store, draft.ApiToken);
-                draft.ApiToken = ""; _config.DnsEngine = draft; _token.Clear(); Close(); return;
+                draft.ApiToken = ""; _config.DnsEngine = draft; SaveSucceeded = true; _token.Clear(); Close(); return;
             }
             if (_replace)
             {
@@ -160,6 +161,7 @@ public sealed class EngineConnectionWindow : Window
             if (_clear) draft.CredentialId = "";
             draft.ApiToken = ""; _config.DnsEngine = draft;
             try { _service.Save(_config); } catch { _config.DnsEngine = previous; throw; }
+            SaveSucceeded = true;
             if ((_clear || _replace) && previous.CredentialId != "")
             { try { _store.Delete(previous.CredentialId); } catch { SetStatus(L.T("Saved; previous local credential cleanup failed"), Error); _token.Clear(); return; } }
             _token.Clear(); Close();

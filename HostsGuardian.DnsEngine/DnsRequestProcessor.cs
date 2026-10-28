@@ -8,6 +8,7 @@ public sealed class DnsRequestProcessor
     public AddressBindingStore Bindings { get; } = new();
     public DnsObservationStore Observations { get; } = new();
     public ProductActivityStore Activity { get; } = new();
+    public RequestBindingRefresh? BindingRefresh { get; set; }
     internal Action<DnsRequestContext>? ContextObserved { get; set; }
     public DnsTelemetry Telemetry { get; }
     private readonly RuleStore _rules;
@@ -34,7 +35,7 @@ public sealed class DnsRequestProcessor
     public string ObserveDevice(DnsRequestContext context, string kind)
     {
         var policy = _policyState.GetSnapshot().Policy ?? HostsGuardian.Core.Models.FullDnsPolicy.Empty;
-        var identity = AddressBindingStore.Resolve(Bindings.Read(), policy, context, DateTimeOffset.UtcNow);
+        var identity = AddressBindingStore.Resolve(Bindings.ReadFor(context), policy, context, DateTimeOffset.UtcNow);
         return Telemetry.Devices.Record(context, identity.DeviceId, identity.State, kind, DateTimeOffset.UtcNow);
     }
     public void ObserveCapacityDrop(DnsRequestContext context)
@@ -46,29 +47,36 @@ public sealed class DnsRequestProcessor
         var deviceKey = "";
         try
         {
+        var parsed = DnsProtocol.TryParseQuestion(request, out var question);
+        if (!parsed || request[4] != 0 || request[5] != 1 || (request[2] & 0xf8) != 0)
+            { deviceKey = ObserveDevice(context,"Received"); Telemetry.Rejected(); Telemetry.Devices.Outcome(deviceKey,"Rejected",DateTimeOffset.UtcNow); return null; }
+        if (cancellationToken.IsCancellationRequested)
+            { deviceKey = ObserveDevice(context,"Received"); Telemetry.Cancelled(); Telemetry.Devices.Outcome(deviceKey,"Cancelled",DateTimeOffset.UtcNow); return null; }
+        var initialPolicy = _policyState.GetSnapshot().Policy ?? HostsGuardian.Core.Models.FullDnsPolicy.Empty;
+        var initialIdentity = AddressBindingStore.Resolve(Bindings.ReadFor(context), initialPolicy, context, DateTimeOffset.UtcNow);
+        if (initialIdentity.DeviceId is null && BindingRefresh is not null)
+            await BindingRefresh.EnsureAsync(context, cancellationToken);
+        // Read policy and identity again after the await: CAS/registration changes must not use old state.
         var policy = _policyState.GetSnapshot();
         var fullPolicy = policy.Policy ?? HostsGuardian.Core.Models.FullDnsPolicy.Empty with
         { GlobalBlockedDomains = System.Collections.Immutable.ImmutableArray.CreateRange(_rules.GetBlockedDomains()) };
-        var bindingSnapshot = Bindings.Read();
+        var bindingSnapshot = Bindings.ReadFor(context);
         var identity = AddressBindingStore.Resolve(bindingSnapshot,fullPolicy,context,DateTimeOffset.UtcNow);
         deviceKey = Telemetry.Devices.Record(context,identity.DeviceId,identity.State,"Received",DateTimeOffset.UtcNow);
         ContextObserved?.Invoke(context);
-        var parsed = DnsProtocol.TryParseQuestion(request, out var question);
-        if (!parsed || request[4] != 0 || request[5] != 1 || (request[2] & 0xf8) != 0)
-            { Telemetry.Rejected(); Telemetry.Devices.Outcome(deviceKey,"Rejected",DateTimeOffset.UtcNow); return null; }
         if (cancellationToken.IsCancellationRequested) { Telemetry.Cancelled(); Telemetry.Devices.Outcome(deviceKey,"Cancelled",DateTimeOffset.UtcNow); return null; }
         var decision = DevicePolicyEvaluator.Explain(policy, fullPolicy, bindingSnapshot, context, question.QName, DateTimeOffset.UtcNow);
-        Observations.Record(context, decision);
+        Observations.Record(context, decision, question.QType);
         if (decision.Blocked)
-        { var blocked = DnsProtocol.BuildBlockedResponse(request, question, _blockedAddress); Telemetry.Blocked(); Telemetry.Devices.Outcome(deviceKey,"Blocked",DateTimeOffset.UtcNow); Activity.Record(fullPolicy, decision, "Blocked", DateTimeOffset.UtcNow); return blocked; }
+        { var blocked = DnsProtocol.BuildBlockedResponse(request, question, _blockedAddress); Telemetry.Blocked(); Telemetry.Devices.Outcome(deviceKey,"Blocked",DateTimeOffset.UtcNow); Activity.Record(fullPolicy, decision, "Blocked", DateTimeOffset.UtcNow); Observations.Complete(context,"ResponsePrepared",blocked,System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds); return blocked; }
 
         var result = await _upstream.ForwardAsync(request, cancellationToken);
-        if (result.Outcome == UpstreamOutcome.Response) { Telemetry.Allowed(); Telemetry.Devices.Outcome(deviceKey,"Allowed",DateTimeOffset.UtcNow); Activity.Record(fullPolicy, decision, "Allowed", DateTimeOffset.UtcNow); return result.Response; }
-        if (result.Outcome == UpstreamOutcome.Cancelled) { Telemetry.Cancelled(); Telemetry.Devices.Outcome(deviceKey,"Cancelled",DateTimeOffset.UtcNow); return null; }
+        if (result.Outcome == UpstreamOutcome.Response) { Telemetry.Allowed(); Telemetry.Devices.Outcome(deviceKey,"Allowed",DateTimeOffset.UtcNow); Activity.Record(fullPolicy, decision, "Allowed", DateTimeOffset.UtcNow); Observations.Complete(context,"ResponsePrepared",result.Response,System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds); return result.Response; }
+        if (result.Outcome == UpstreamOutcome.Cancelled) { Observations.Complete(context,"Cancelled",null,System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds); Telemetry.Cancelled(); Telemetry.Devices.Outcome(deviceKey,"Cancelled",DateTimeOffset.UtcNow); return null; }
         var failure = DnsProtocol.BuildServerFailure(request, question);
-        Telemetry.Failed(); Telemetry.Devices.Outcome(deviceKey,"Servfail",DateTimeOffset.UtcNow); Activity.Record(fullPolicy, decision, "Failed", DateTimeOffset.UtcNow); return failure;
+        Telemetry.Failed(); Telemetry.Devices.Outcome(deviceKey,"Servfail",DateTimeOffset.UtcNow); Activity.Record(fullPolicy, decision, "Failed", DateTimeOffset.UtcNow); Observations.Complete(context,"ResponsePrepared",failure,System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds); return failure;
         }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { Telemetry.Cancelled(); Telemetry.Devices.Outcome(deviceKey,"Cancelled",DateTimeOffset.UtcNow); throw; }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { Observations.Complete(context,"Cancelled",null,System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds); Telemetry.Cancelled(); Telemetry.Devices.Outcome(deviceKey,"Cancelled",DateTimeOffset.UtcNow); throw; }
         catch { Telemetry.Failed(false); Telemetry.Devices.Outcome(deviceKey,"Failed",DateTimeOffset.UtcNow); throw; }
         finally { Telemetry.ProcessingLatency.Record(System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds); Telemetry.Exit(context.Transport); }
     }

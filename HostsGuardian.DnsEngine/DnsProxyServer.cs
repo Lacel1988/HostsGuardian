@@ -159,15 +159,19 @@ public sealed class DnsProxyServer : IAsyncDisposable
     private async Task ProcessDatagramAsync(UdpClient listener, UdpReceiveResult request, DnsRequestContext context, CancellationToken cancellationToken)
     {
         Interlocked.Increment(ref _activeRequests);
+        var started = System.Diagnostics.Stopwatch.GetTimestamp();
         try
         {
             var response = await (_processRequest == null ? _processor.ProcessReceivedAsync(request.Buffer, context, cancellationToken) : _processRequest(request.Buffer, cancellationToken)).ConfigureAwait(false);
             if (response != null && !cancellationToken.IsCancellationRequested)
+            {
                 await listener.SendAsync(response.AsMemory(), request.RemoteEndPoint, cancellationToken).ConfigureAwait(false);
+                _processor.Observations.Complete(context,"TransportWriteSucceeded",response,System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds);
+            }
         }
         catch (Exception ex) when (cancellationToken.IsCancellationRequested &&
-            ex is OperationCanceledException or ObjectDisposedException or SocketException) { }
-        catch (Exception) { Telemetry.TransportFailed(); _log.Warning("DNS", "Request processing or UDP response failed"); }
+            ex is OperationCanceledException or ObjectDisposedException or SocketException) { _processor.Observations.Complete(context,"Cancelled",null,System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds); }
+        catch (Exception) { _processor.Observations.Complete(context,"TransportWriteFailed",null,System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds); Telemetry.TransportFailed(); _log.Warning("DNS", "Request processing or UDP response failed"); }
         finally { Interlocked.Decrement(ref _activeRequests); }
     }
 

@@ -71,7 +71,13 @@ class TopologyView(Gtk.Box):
         except (ValueError,KeyError,TypeError,AttributeError):
             self.validator_note.set_text('Active validator: UNKNOWN - health evidence missing or stale; DNS remains independent.');return
         state=value.get('state','UNKNOWN');reason=value.get('reason','Unknown')
-        self.validator_note.set_text('Active validator: '+str(state)[:32]+' - '+str(reason)[:200]+'. DNS remains independent; missing validation does not establish identity.')
+        capture=value.get('passiveDnsL2State','UNKNOWN')
+        capture_reason=value.get('passiveDnsL2Reason','No capture evidence')
+        generation=value.get('interfaceGeneration',0)
+        self.validator_note.set_text('Validator IPC: '+str(state)[:32]+' - '+str(reason)[:160]+
+            '\nPassive capture: '+str(capture)[:32]+' - '+str(capture_reason)[:160]+'; generation '+str(generation)[:20]+
+            '\nIPv6 device attribution: '+str(value.get('ipv6IdentityState','UnsupportedPassiveEvidence'))[:64]+
+            '. DNS remains independent; IPC readiness alone does not establish a device binding.')
 
     def select_row(self,box,row):
         if row:self.selected=row.node_id;self.show_details();self.canvas.queue_draw()

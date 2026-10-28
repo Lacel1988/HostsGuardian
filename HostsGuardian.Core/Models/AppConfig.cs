@@ -15,6 +15,8 @@ namespace HostsGuardian.Core.Models
 
         // DevicePolicies remain unassigned legacy review information; never convert IsBlocked.
         public FullDnsPolicy DeviceDomainPolicy { get; set; } = FullDnsPolicy.Empty;
+        // Local-only pre-edit values. Retained across delivery/restart; never sent to Engine.
+        public List<HostsGuardian.Core.Services.DeviceOverrideRestorePoint> DeviceRuleRestorePoints { get; set; } = new();
 
         public DnsEngineConfig DnsEngine { get; set; } = new();
 

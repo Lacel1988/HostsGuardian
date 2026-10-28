@@ -7,19 +7,26 @@ namespace HostsGuardian.DnsEngine;
 /// <summary>Atomic, bounded observations; DNS workers only read a snapshot and evaluate freshness.</summary>
 public sealed class AddressBindingStore
 {
-    private sealed record Snapshot(BindingRead Value,Func<bool>? Validity=null);
-    private Snapshot _snapshot = new(new(0, []));
+    private sealed record Snapshot(BindingRead Value,ImmutableDictionary<(string Address,string? Scope),ImmutableArray<AddressBindingObservation>> Index,Func<bool>? Validity=null);
+    private static Snapshot Create(BindingRead value,Func<bool>? validity=null) => new(value,
+        value.Observations.GroupBy(b=>(b.Address,b.NetworkScope)).ToImmutableDictionary(g=>g.Key,g=>g.ToImmutableArray()),validity);
+    private Snapshot _snapshot = Create(new(0, []));
     private readonly object _gate = new();
     public BindingRead Read() {
         var snapshot=Volatile.Read(ref _snapshot);
         return snapshot.Validity is null || snapshot.Validity() ? snapshot.Value : new(snapshot.Value.Generation,[]);
     }
+    public BindingRead ReadFor(DnsRequestContext context) {
+        var snapshot=Volatile.Read(ref _snapshot);
+        return new(snapshot.Value.Generation,snapshot.Validity is not null && !snapshot.Validity() ? [] :
+            snapshot.Index.GetValueOrDefault((context.SourceAddress,context.NetworkScope),[]));
+    }
     internal void PublishObserved(ImmutableArray<AddressBindingObservation> observations,Func<bool>? validity=null)
     {
         lock(_gate) {
             var current=Read();if(current.Observations.SequenceEqual(observations) && _snapshot.Validity==validity)return;
-            if(current.Generation==long.MaxValue) { Volatile.Write(ref _snapshot,new(new(current.Generation,[])));return; }
-            Volatile.Write(ref _snapshot,new(new(current.Generation+1,observations),validity));
+            if(current.Generation==long.MaxValue) { Volatile.Write(ref _snapshot,Create(new(current.Generation,[])));return; }
+            Volatile.Write(ref _snapshot,Create(new(current.Generation+1,observations),validity));
         }
     }
     public bool Replace(BindingReplace candidate)
@@ -40,7 +47,7 @@ public sealed class AddressBindingStore
         {
             var current = Read();
             if (current.Generation != candidate.ExpectedGeneration || current.Generation == long.MaxValue) return false;
-            Volatile.Write(ref _snapshot, new(new(current.Generation + 1, candidate.Observations)));
+            Volatile.Write(ref _snapshot, Create(new(current.Generation + 1, candidate.Observations)));
             return true;
         }
     }

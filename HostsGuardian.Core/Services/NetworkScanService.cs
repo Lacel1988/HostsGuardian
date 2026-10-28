@@ -142,7 +142,7 @@ public sealed class NetworkScanService
             p.WaitForExit(2000);
 
             // arp -a (Windows) tipikus sor:
-            //  192.168.1.1           40-c2-ba-xx-xx-xx     dynamic
+            //  192.0.2.1             02-00-00-00-00-01     dynamic
             var rx = new Regex(@"\b(?<ip>\d{1,3}(\.\d{1,3}){3})\s+(?<mac>([0-9a-f]{2}-){5}[0-9a-f]{2})\b",
                 RegexOptions.IgnoreCase);
 
@@ -187,7 +187,7 @@ public sealed class NetworkScanService
 
     private static string Get24Prefix(string ip)
     {
-        // 192.168.1.52 -> 192.168.1.
+        // 192.0.2.52 -> 192.0.2.
         var parts = (ip ?? "").Split('.');
         if (parts.Length != 4) return "";
         return $"{parts[0]}.{parts[1]}.{parts[2]}.";

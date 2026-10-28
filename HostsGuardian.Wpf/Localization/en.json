@@ -558,6 +558,9 @@
   "Inventory.ForgetFailed": "Device removal was not saved.",
   "Inventory.Count": "{0} registered; {1} unregistered. Presence and DNS coverage require evidence.",
   "Inventory.Forget": "Forget device",
+  "Restore.DeviceRules": "Restore original device rules",
+  "Restore.Hint": "Restores this device’s pre-edit rules locally; send separately to apply.",
+  "Restore.Failed": "Original device rules could not be restored",
   "Inventory.OrphanRecovered": "The registration no longer exists. The observation is now unregistered; register it explicitly before saving identity changes.",
   "DeviceFlow.Editing": "Identity edits are not saved yet.",
   "DeviceFlow.Pending": "Engine request pending; confirmation is not yet available.",
@@ -578,5 +581,8 @@
   "Enforcement.Verified": "Device binding verified; matching rules can apply while evidence is fresh. DNS coverage is not proven.",
   "Enforcement.Stale": "Device binding expired; device rules cannot currently be confirmed.",
   "Enforcement.Unknown": "Device binding unknown; registration alone does not enable device rules.",
-  "Enforcement.Conflict": "Conflicting identity evidence; device rules cannot safely target this device."
+  "Enforcement.Conflict": "Conflicting identity evidence; device rules cannot safely target this device.",
+  "Policy readback: not read": "Policy readback: not read",
+  "Policy readback: read; delivery remains separate": "Policy readback: read; delivery remains separate",
+  "Policy readback failed; connection status is separate": "Policy readback failed; connection status is separate"
 }

@@ -9,14 +9,15 @@ namespace HostsGuardian.Core.Services;
 public static class DnsCoverageEvidence
 {
     private static readonly object Gate = new();
-    private static DateTimeOffset ReadAt;
+    private static long ReadAt;
+    private static bool HasRead;
     private static DnsCoverage Cached = new();
     public static DnsCoverage Read()
     {
         lock(Gate)
         {
-            if(DateTimeOffset.UtcNow-ReadAt<TimeSpan.FromSeconds(30)) return Cached;
-            ReadAt=DateTimeOffset.UtcNow;
+            if(HasRead && System.Diagnostics.Stopwatch.GetElapsedTime(ReadAt)<TimeSpan.FromSeconds(30)) return Cached;
+            ReadAt=System.Diagnostics.Stopwatch.GetTimestamp(); HasRead=true;
             try
             {
                 var interfaces=NetworkInterface.GetAllNetworkInterfaces().Where(n=>n.OperationalStatus==OperationalStatus.Up && n.NetworkInterfaceType!=NetworkInterfaceType.Loopback).Take(64).ToArray();

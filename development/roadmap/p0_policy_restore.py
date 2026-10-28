@@ -2,12 +2,61 @@
 import argparse
 import hashlib
 import json
+import ipaddress
+import re
 from pathlib import Path
 import ssl
 import urllib.request
 
 
 class Conflict(RuntimeError):pass
+
+
+def validate_scope(session):
+    """The hash-pinned session grants authority; no device/domain is built in."""
+    rows=session.get('approvedOverrides')
+    if not isinstance(rows,list) or not 1<=len(rows)<=64:
+        raise Conflict('Explicit bounded recovery scope required')
+    devices=session['original']['policy']['devices']
+    ids=[x['deviceId'] for x in devices]
+    if len(ids)!=len(set(ids)):raise Conflict('Ambiguous registration')
+    approved=set()
+    for row in rows:
+        if not isinstance(row,list) or len(row)!=2 or not all(isinstance(x,str) for x in row):
+            raise Conflict('Malformed recovery scope')
+        device,domain=row
+        if device not in ids or not device or not valid_domain(domain):
+            raise Conflict('Unknown recovery target or noncanonical domain')
+        if tuple(row) in approved:raise Conflict('Duplicate recovery scope')
+        approved.add(tuple(row))
+    if len({device for device,domain in approved})!=1:
+        raise Conflict('One explicitly approved device per session required')
+    before=keyed(session['original']['policy']['overrides'])
+    if any(r.get('state') not in ('Inherit','Allow','Block') for k,r in before.items() if k in approved):
+        raise Conflict('Unsupported original override state')
+    states=session.get('originalOverrideStates')
+    expected=[dict(deviceId=d,domain=n,original=before.get((d,n))) for d,n in sorted(approved)]
+    if states is not None and states!=expected:raise Conflict('Original state ledger mismatch')
+    return approved
+
+
+def valid_domain(domain):
+    if len(domain)>253 or domain!=domain.lower() or '.' not in domain:return False
+    labels=domain.split('.')
+    if any(not re.fullmatch(r'[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?',label) for label in labels):return False
+    try:ipaddress.ip_address(domain);return False
+    except ValueError:return True
+
+
+def make_session(original,api_config,device_id,domains):
+    """No network writes. null ledger entry means ABSENT, never Inherit."""
+    session=dict(original=original,api=api_config,
+                 approvedOverrides=[[device_id,d] for d in domains])
+    approved=validate_scope(session)
+    before=keyed(original['policy']['overrides'])
+    session['originalOverrideStates']=[dict(deviceId=d,domain=n,original=before.get((d,n)))
+                                      for d,n in sorted(approved)]
+    return session
 
 
 def keyed(rows):
@@ -45,14 +94,19 @@ class Api:
 
 
 def restore(session,api):
-    original=session['original']['policy'];approved={tuple(x) for x in session['approvedOverrides']}
-    if not approved or len(approved)>64:raise Conflict('Explicit recovery scope required')
-    ids={x['deviceId'] for x in original['devices']}
-    if any(device not in ids or domain!='youtube.com' for device,domain in approved):raise Conflict('Unknown recovery target/domain')
+    original=session['original']['policy'];approved=validate_scope(session)
     current=api.call('/v2/policy')
     safe_to_restore(original,current['policy'],approved)
     if current['policy']==original:return dict(restored=True,revision=current['revision'],alreadyOriginal=True)
-    ack=api.call('/v2/policy/replace',dict(expectedRevision=current['revision'],expectedInstanceId=current['instanceId'],policy=original))
+    # Only remaining session-owned differences; already-restored rows stay untouched.
+    before=keyed(original['overrides']);after=keyed(current['policy']['overrides'])
+    for key in approved:
+        if before.get(key)==after.get(key):continue
+        if key in before:after[key]=before[key]
+        else:after.pop(key,None)
+    restored=dict(current['policy'],overrides=original['overrides'])
+    if after!=before:raise Conflict('Restoration scope incomplete')
+    ack=api.call('/v2/policy/replace',dict(expectedRevision=current['revision'],expectedInstanceId=current['instanceId'],policy=restored))
     readback=api.call('/v2/policy')
     if not ack.get('ok') or readback['revision']!=ack.get('revision') or readback['instanceId']!=current['instanceId'] or readback['policy']!=original:
         raise Conflict('Restoration readback unconfirmed')
@@ -66,7 +120,7 @@ def main():
     if not args.approved_recovery:raise Conflict('Recovery approval required')
     data=args.session.read_bytes()
     if hashlib.sha256(data).hexdigest()!=args.sha256:raise Conflict('Pinned recovery session changed')
-    session=json.loads(data);api=Api(session['api'])
+    session=json.loads(data);validate_scope(session);api=Api(session['api'])
     if args.check_only:
         current=api.call('/v2/policy')
         if current['policy']!=session['original']['policy']:raise Conflict('Pre-test original no longer current')

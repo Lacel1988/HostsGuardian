@@ -558,6 +558,9 @@
   "Inventory.ForgetFailed": "Az eszköz eltávolítása nem lett mentve.",
   "Inventory.Count": "{0} regisztrált; {1} nem regisztrált. A jelenlét és a DNS-lefedettség bizonyítékot igényel.",
   "Inventory.Forget": "Eszköz elfelejtése",
+  "Restore.DeviceRules": "Eredeti eszközszabályok visszaállítása",
+  "Restore.Hint": "Helyben visszaállítja az eszköz módosítás előtti szabályait; alkalmazásukhoz külön küldés szükséges.",
+  "Restore.Failed": "Az eredeti eszközszabályokat nem sikerült visszaállítani",
   "Inventory.OrphanRecovered": "A regisztráció már nem létezik. A megfigyelés most nem regisztrált; az azonosítóadatok mentése előtt regisztrálja újra.",
   "DeviceFlow.Editing": "Az identitás módosításai még nincsenek mentve.",
   "DeviceFlow.Pending": "Engine-kérés folyamatban; még nincs megerősítés.",
@@ -578,5 +581,8 @@
   "Enforcement.Verified": "Az eszköz-hozzárendelés igazolt; friss bizonyíték mellett alkalmazhatók a szabályok. A DNS-lefedettség nem bizonyított.",
   "Enforcement.Stale": "Az eszköz-hozzárendelés lejárt; az eszközszabályok jelenleg nem igazolhatók.",
   "Enforcement.Unknown": "Az eszköz-hozzárendelés ismeretlen; a regisztráció önmagában nem elég az eszközszabályokhoz.",
-  "Enforcement.Conflict": "Ellentmondó identitásbizonyíték; az eszköz nem célozható biztonságosan."
+  "Enforcement.Conflict": "Ellentmondó identitásbizonyíték; az eszköz nem célozható biztonságosan.",
+  "Policy readback: not read": "Policy beolvasás: még nem történt meg",
+  "Policy readback: read; delivery remains separate": "Policy beolvasva; az elküldés külön művelet",
+  "Policy readback failed; connection status is separate": "A policy beolvasása sikertelen; a kapcsolati állapot ettől független"
 }

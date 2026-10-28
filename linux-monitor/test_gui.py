@@ -24,6 +24,9 @@ class GuiTests(unittest.TestCase):
             view=TopologyView();view.render(fixture());view.validator_health(dict(state='UNAVAILABLE',reason='Fixture only',checkedAtUtc=datetime.now(timezone.utc).isoformat()))
             self.assertIsNotNone(view.list.get_first_child());self.assertIn('Unknown fixture',view.details.get_text())
             self.assertIn('UNAVAILABLE',view.validator_note.get_text())
+            view.validator_health(dict(state='READY',reason='IPC healthy',checkedAtUtc=datetime.now(timezone.utc).isoformat(),passiveDnsL2State='UNAVAILABLE',passiveDnsL2Reason='Interface unavailable',interfaceGeneration=2))
+            self.assertIn('IPC: READY',view.validator_note.get_text());self.assertIn('UNAVAILABLE',view.validator_note.get_text())
+            self.assertIn('Unsupported',view.validator_note.get_text())
             view.validator_health(dict(state='READY',reason='Old evidence',checkedAtUtc='2000-01-01T00:00:00Z'))
             self.assertIn('UNKNOWN',view.validator_note.get_text())
 
@@ -144,6 +147,22 @@ class GuiTests(unittest.TestCase):
     def test_confirmation_decline_never_operates(self):
         self.app.confirm('stop');self.dialog().response(Gtk.ResponseType.NO);self.drain()
         self.client.control.assert_not_called()
+    def test_confirmation_blocks_poll_and_busy_yes_never_claims_dispatch(self):
+        self.app.confirm('restart');self.client.status.reset_mock()
+        self.app.poll();self.client.status.assert_not_called()
+        self.app.pending=True
+        self.dialog().response(Gtk.ResponseType.YES);self.drain()
+        self.client.control.assert_not_called();self.assertFalse(self.app.action_observation.active)
+        self.assertIn('not sent',self.app.notice.get_text())
+        self.app.pending=False
+    def test_restart_requires_changed_pid_and_has_bounded_feedback(self):
+        self.app.confirm('restart');self.dialog().response(Gtk.ResponseType.YES);self.drain()
+        self.client.control.assert_called_once_with('restart')
+        self.assertTrue(self.app.action_observation.active)
+        self.app.show_status((self.unit,self.snapshot),None)
+        self.assertIn('waiting',self.app.notice.get_text())
+        self.app.show_status((self.unit | dict(MainPID=124),None),None)
+        self.assertIn('Restart observation',self.app.notice.get_text());self.assertFalse(self.app.action_observation.active)
     def test_request_then_actual_readback(self):
         self.client.control.return_value='Action requested; waiting for observed state.'
         self.app.confirm('stop');self.dialog().response(Gtk.ResponseType.YES);self.drain()

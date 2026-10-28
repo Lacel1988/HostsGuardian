@@ -15,6 +15,7 @@ public sealed class ConfigService
             var cfg = JsonSerializer.Deserialize<AppConfig>(text, Options) ?? new AppConfig();
             cfg.BlockedDomains ??= new();
             cfg.DevicePolicies ??= new();
+            cfg.DeviceRuleRestorePoints ??= new();
             cfg.DnsEngine ??= new();
             cfg.DeviceDomainPolicy = PolicyCanonicalization.Canonicalize(cfg.DeviceDomainPolicy ?? FullDnsPolicy.Empty);
             cfg.DnsEngine.LegacyCredentialPresent = LegacyToken(text) != null;

@@ -446,3 +446,23 @@ FodyWeavers.xsd
 
 # Operator-owned development configuration; publish only the portable example.
 /development/orchestrator/hostsguardian.local.json
+
+# Publication boundary: operator artifacts are never source deliverables.
+/local-artifacts/
+/private-evidence/
+/recovery-images/
+*.img
+*.iso
+*.vhd
+*.vhdx
+*.vmdk
+*.qcow2
+*.wim
+*.p12
+*.pem
+*.key
+.env
+.env.*
+!.env.example
+!.env.sample
+!.env.template

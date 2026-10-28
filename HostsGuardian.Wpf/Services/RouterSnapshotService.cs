@@ -161,7 +161,7 @@ namespace HostsGuardian.Wpf.Services
 
         private static string? TryGetGatewayFromIpConfig()
         {
-            // ipconfig -> "Default Gateway . . . . . . . . . : 192.168.1.1"
+            // ipconfig -> "Default Gateway . . . . . . . . . : 192.0.2.1"
             var text = RunCmd("ipconfig", "");
             if (string.IsNullOrWhiteSpace(text))
                 return null;
@@ -193,7 +193,7 @@ namespace HostsGuardian.Wpf.Services
             foreach (var line in text.Split(new[] { "\r\n", "\n" }, StringSplitOptions.RemoveEmptyEntries))
             {
                 var trimmed = line.Trim();
-                // tipikus: "192.168.1.1           11-22-33-44-55-66     dynamic"
+                // example: "192.0.2.1             02-00-00-00-00-01     dynamic"
                 var parts = Regex.Split(trimmed, @"\s+").Where(p => p.Length > 0).ToArray();
                 if (parts.Length < 1)
                     continue;

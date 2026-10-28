@@ -4,7 +4,9 @@
 
 A C#/.NET DNS policy project with a Windows WPF Control Center, Linux DNS Engine and Linux diagnostics Monitor.
 
-> **v0.4.0 — pre-1.0, work in progress.** Global DNS Block/Restore has real end-to-end evidence. Reliable device-specific enforcement and complete LAN coverage remain unproven. This is not a production-ready network protection appliance.
+> **Pre-1.0 development candidate, based on v0.4.0.** Historical global DNS Block/Restore evidence is recorded below. Current source has local regression coverage, not new production acceptance. Reliable device-specific enforcement and complete LAN coverage remain unproven.
+
+Publication preparation: **28 October 2026**. This working-tree candidate has no new commit, tag, binary release or deployment. [Verification and version provenance](docs/publication-verification-2026-10-28.md) separates source tests from historical runtime evidence.
 
 ## Project overview and architecture
 
@@ -31,7 +33,7 @@ WPF owns device registration, friendly names/types and user decisions. Monitor c
 
 | Capability | Status |
 |---|---|
-| WPF startup, Domains/Devices, EN/HU | VERIFIED by human review; selected package launched. |
+| WPF startup, Domains/Devices, EN/HU | Historical human review of a selected package; current WPF fixture regressions pass. |
 | Global WPF Block → real DNS sinkhole → Restore | VERIFIED on 13 October 2026; evidence below. |
 | IPv4/IPv6 UDP/TCP listeners and upstream forwarding | IMPLEMENTED, with prior deployment/readiness evidence; not whole-LAN coverage. |
 | Registry, names/types, device policy | IMPLEMENTED; reliable selective live enforcement PARTIAL / UNVERIFIED. |
@@ -40,7 +42,10 @@ WPF owns device registration, friendly names/types and user decisions. Monitor c
 | Groups/profiles/schedules/service catalog | IMPLEMENTED contracts/evaluator; complete real-device acceptance UNVERIFIED. |
 | Notifications/audit/structured logging | IMPLEMENTED / PARTIAL; records alone do not prove native delivery. |
 | Monitor blocked-query data channel | VERIFIED for the global test; GUI event rendering UNVERIFIED. |
-| Receiver recovery, bounded refresh, extended telemetry/recovery | Local candidate work; not published as source or represented as deployed in this documentation checkpoint. |
+| Receiver recovery and bounded refresh | Included with generation/timeout/cancellation regressions; production acceptance pending. |
+| Correlated DNS diagnostics | Included: 512 queued events, 2048 decisions, 15-minute monotonic retention, loss counters; local socket-write success is not client receipt. |
+| Exact device-rule Restore and settings synchronization | Included with persisted ABSENT/Inherit/Allow/Block restoration and mocked WPF tests; delivery remains explicit. |
+| Guarded upgrade and recovery tooling | Included with isolated tests; root/PID1, hard-kill and reboot acceptance pending. |
 | Whole-LAN / Network Enforcement | BLOCKED: resolver coverage and mandatory traffic chokepoint are unproven. |
 
 Detailed source/test references and preserved concepts: [Architecture and roadmap](docs/ARCHITECTURE_AND_ROADMAP.md).
@@ -55,11 +60,11 @@ Detailed source/test references and preserved concepts: [Architecture and roadma
 - Bounded DNS concurrency/timeouts: [DnsProxyServer](HostsGuardian.DnsEngine/DnsProxyServer.cs), [DnsRequestProcessor](HostsGuardian.DnsEngine/DnsRequestProcessor.cs).
 - Evidence-based identity rejects stale/ambiguous claims rather than trusting historical IPs: [AddressBindingStore](HostsGuardian.DnsEngine/AddressBindingStore.cs).
 
-Adaptive Simple/Indexed switching, learning service discovery and SQLite/WAL aggregation are not claimed as implemented. Fixed-index and bounded-queue improvements are separately identified as local candidate work.
+Adaptive Simple/Indexed switching, learning service discovery and SQLite/WAL aggregation are not claimed as implemented. Fixed immutable address/scope indexes and bounded diagnostic queues are included in this source candidate.
 
-## Verified end-to-end DNS blocking
+## Historical end-to-end DNS blocking
 
-On **13 October 2026**, a controlled Windows client directly queried the Linux Engine for `example.com`:
+The previous documentation records the following controlled Windows-to-Linux Engine test for `example.com` on **13 October 2026**. It was not rerun during this publication review and does not identify the current candidate as the deployed build:
 
 | Stage | Observed result |
 |---|---|
@@ -87,7 +92,9 @@ dotnet run --project HostsGuardian.Wpf.RegressionTests -c Release
 
 Run `python3 -B -m unittest discover -v` separately in `network-validator`, `linux-monitor` and `development/roadmap`. GTK tests require Linux graphical dependencies; platform skips are not executed GUI tests. A new development build is not automatically an accepted release artifact.
 
-Preserved candidate results: Core/Engine **332 PASS**, WPF **33 PASS**, helper/upgrade Windows **82 PASS + 1 skip**, recovery **36 PASS**, Monitor Windows **60 PASS + 22 skips**. Linux fixture results: Core/Engine 332, helper 83, recovery 36 PASS; Monitor 63 PASS + 19 skips. These are previous candidate regressions, not newly executed tests of this documentation commit or production acceptance.
+The current Windows verification matrix, exact commands, skips and source-provenance limits are in [Publication verification](docs/publication-verification-2026-10-28.md). Core/Engine: **332 passing groups**; WPF: **39 PASS messages**, exit 0. Python results are reported as executed/pass/skip counts, rather than treating GTK skips as GUI success. Older Linux and candidate results remain historical evidence in milestone documents.
+
+Recovery scripts are maintained source, not disposable disk images. Generated private sessions, credentials, certificates, build output and recovery images stay outside Git. The transfer bootstrap defaults to `/var/tmp/hostsguardian-transfer`; package generators can explicitly provide `transferDirectory`. Generating a bootstrap never authorizes or performs deployment.
 
 ## Security model and limitations
 
@@ -106,4 +113,4 @@ IPv6 per-device attribution, native notification/schedule acceptance, populated 
 
 ## Project status
 
-**Work in progress.** Useful global DNS filtering is demonstrated; reliable general device enforcement is the next acceptance objective. This documentation update creates no deployment, tag or binary GitHub release.
+**Work in progress.** Historical global DNS filtering is documented; reliable general device enforcement is the next acceptance objective. This publication preparation creates no deployment, tag or binary GitHub release. Application code uses the repository MIT license; embedded fonts retain their separate [Orbitron](HostsGuardian.Wpf/Assets/Fonts/OFL.txt) and [Exo](HostsGuardian.Wpf/Assets/Fonts/Exo-OFL.txt) notices.

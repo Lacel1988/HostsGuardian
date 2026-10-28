@@ -52,6 +52,7 @@
                                     <Button Content="{loc:Text S188}" Style="{StaticResource SecondaryButton}" Padding="12,7" AutomationProperties.AutomationId="CheckConnection" Command="{Binding PingEngineCommand}"  ToolTip="{loc:Text T.Check}" ToolTipService.InitialShowDelay="2500" ToolTipService.BetweenShowDelay="0"/>
                                 </WrapPanel>
                                 <TextBlock Text="{Binding EngineSafeModeText}" TextWrapping="Wrap" Margin="0,10,0,0" />
+                                <TextBlock Text="{Binding EnginePolicyReadbackText}" TextWrapping="Wrap" Margin="0,6,0,0" />
                                 <WrapPanel Margin="0,6,0,0">
                                     <Button Content="{loc:Text S189}" Style="{StaticResource SecondaryButton}" Padding="8,7" Margin="0,0,6,6" AutomationProperties.AutomationId="EnterSafeMode" Command="{Binding EnterEngineSafeModeCommand}"  ToolTip="{loc:Text T.SafeEnter}" ToolTipService.InitialShowDelay="2500" ToolTipService.BetweenShowDelay="0"/>
                                     <Button Content="{loc:Text S190}" Style="{StaticResource SecondaryButton}" Padding="8,7" Margin="0,0,0,6" AutomationProperties.AutomationId="ExitSafeMode" Command="{Binding ExitEngineSafeModeCommand}"  ToolTip="{loc:Text T.SafeExit}" ToolTipService.InitialShowDelay="2500" ToolTipService.BetweenShowDelay="0"/>
@@ -116,6 +117,7 @@
                                         </DataGrid.RowStyle>
                                     </DataGrid><TextBlock Grid.Row="1" Text="{loc:Text Empty.Domains}" TextAlignment="Center" VerticalAlignment="Center" Margin="25,40,25,20" IsHitTestVisible="False"><TextBlock.Style><Style TargetType="TextBlock" BasedOn="{StaticResource HelperText}"><Setter Property="Visibility" Value="Collapsed"/><Style.Triggers><DataTrigger Binding="{Binding DomainsView.IsEmpty}" Value="True"><Setter Property="Visibility" Value="Visible"/></DataTrigger></Style.Triggers></Style></TextBlock.Style></TextBlock>
                                     <WrapPanel Grid.Row="2" Orientation="Horizontal" Margin="0,10,0,0">
+                                        <Button Content="{loc:Text S089}" Command="{Binding LoadFullPolicyCommand}" Margin="0,0,10,0" ToolTip="{loc:Text T.Read}" />
                                         <Button Content="{loc:Text S203}" Style="{StaticResource DangerButton}" Padding="12,7" Margin="0,0,10,0" Command="{Binding RemoveDomainCommand}" />
                                         <Button Content="{loc:Text S204}" Style="{StaticResource PrimaryButton}" Padding="12,7" Command="{Binding PushDnsCommand}"  ToolTip="{loc:Text T.Send}" ToolTipService.InitialShowDelay="2500" ToolTipService.BetweenShowDelay="0"/>
                                     </WrapPanel>
@@ -204,6 +206,7 @@
                                         </DataGrid.Columns>
                                     </DataGrid><TextBlock Grid.Row="3" Grid.ColumnSpan="2" Text="{loc:Text Empty.Rules}" TextAlignment="Center" VerticalAlignment="Center" Margin="25,40,25,20" IsHitTestVisible="False"><TextBlock.Style><Style TargetType="TextBlock" BasedOn="{StaticResource HelperText}"><Setter Property="Visibility" Value="Collapsed"/><Style.Triggers><DataTrigger Binding="{Binding DeviceDomainRules.Count}" Value="0"><Setter Property="Visibility" Value="Visible"/></DataTrigger></Style.Triggers></Style></TextBlock.Style></TextBlock>
                                     <WrapPanel Grid.Row="4" Grid.ColumnSpan="2" Margin="0,8,0,0">
+                                        <Button Content="{loc:Text Restore.DeviceRules}" Command="{Binding RestoreDeviceRulesCommand}" Margin="0,0,8,0" ToolTip="{loc:Text Restore.Hint}" ToolTipService.InitialShowDelay="2500"/>
                                         <Button Content="{loc:Text S226}" Command="{Binding PushDnsCommand}" Margin="0,0,8,0" ToolTip="{loc:Text T.Send}" ToolTipService.InitialShowDelay="2500" ToolTipService.BetweenShowDelay="0"/>
                                         <Button Content="{loc:Text S227}" Command="{Binding ExplainSelectedPolicyCommand}" Margin="0,0,8,0" ToolTip="{loc:Text T.Effective}" ToolTipService.InitialShowDelay="2500" ToolTipService.BetweenShowDelay="0"/>
                                         <TextBlock Text="{Binding EngineEffectivePolicy}" TextWrapping="Wrap" MaxWidth="550"/>

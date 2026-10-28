@@ -63,6 +63,26 @@ internal static class RegistrationConsistencyTests
   handler.Fail=true;vm.PushDnsCommand.Execute(null);Wait(vm);
   Check(vm.DeviceWorkflowState=="Failed" && row.IsRegistered,"Failed Engine request fabricated success or erased registration");handler.Fail=false;
   Confirm(()=>vm.LoadFullPolicyCommand.Execute(null));Wait(vm);Check(row.IsRegistered && row.DeviceId==saved.DeviceId && row.ConfirmedType=="TV","Valid readback lost registration");
+  handler.Policy=PolicyCanonicalization.Canonicalize(handler.Policy with {Overrides=[new(saved.DeviceId,"inherit.invalid",DeviceDomainRuleState.Inherit),new(saved.DeviceId,"blocked.invalid",DeviceDomainRuleState.Block),new(saved.DeviceId,"allowed.invalid",DeviceDomainRuleState.Allow)]});handler.Revision++;
+  Confirm(()=>vm.LoadFullPolicyCommand.Execute(null));Wait(vm);
+  Check(store.Load().DeviceDomainPolicy.Overrides.Length==3,"Restore fixture import failed: "+vm.LastError);
+  var restoreBaseline=PolicyBackup.Export(handler.Policy);
+  foreach(var domain in new[]{"absent.invalid","inherit.invalid","blocked.invalid","allowed.invalid"}){vm.NewDomainText=domain;vm.AddDomainCommand.Execute(null);}
+  vm.SelectedDevice=null;vm.SelectedDevice=row;
+  foreach(var rule in vm.DeviceDomainRules.Where(r=>r.Domain.EndsWith(".invalid")))rule.State=DeviceDomainRuleState.Block;
+  Check(store.Load().DeviceRuleRestorePoints.Any(p=>p.Domain=="absent.invalid" && p.Original==null),"ABSENT collapsed into Inherit");
+  var reloadVm=new MainViewModel(store,false,new AuditLogService(Path.Combine(folder,"reload-audit.log")),service);
+  reloadVm.SelectedDevice=reloadVm.Devices.Single(d=>d.DeviceId==saved.DeviceId);
+  reloadVm.RestoreDeviceRulesCommand.Execute(null);
+  Check(PolicyBackup.Export(store.Load().DeviceDomainPolicy)==restoreBaseline,"Restart lost exact restore points");reloadVm.Dispose();
+  vm.PushDnsCommand.Execute(null);Wait(vm);
+  vm.RestoreDeviceRulesCommand.Execute(null);
+  Check(PolicyBackup.Export(store.Load().DeviceDomainPolicy)==restoreBaseline,"WPF exact Restore failed ABSENT/Inherit/Allow/Block");
+  vm.RestoreDeviceRulesCommand.Execute(null);
+  vm.PushDnsCommand.Execute(null);Wait(vm);
+  Check(PolicyBackup.Export(handler.Policy)==restoreBaseline,"Full-policy omission did not delete ABSENT override");
+  Check(store.Load().DeviceRuleRestorePoints.Count==0,"Restore checkpoints not cleared");
+  Console.WriteLine("PASS WPF persisted exact Restore survives restart, removes ABSENT, preserves explicit states and delivers idempotently");
   Confirm(()=>vm.ForgetSelectedDeviceCommand.Execute(null));Check(store.Load().DeviceDomainPolicy.Devices.Length==0,"Forget failed");
   Check(DeviceIdentityProjection.Apply([observation],store.Load().DeviceDomainPolicy).Single().Identity!.State=="Provisional","Forget resurrected metadata");
   var ambiguousA=new DeviceVm(new NetworkDevice{Ip="192.0.2.11",Mac=registration.Mac!},null,false){LanObservation=observation};ambiguousA.ApplyRegistration(saved,handler.Policy);

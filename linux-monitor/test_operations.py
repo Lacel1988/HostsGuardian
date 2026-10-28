@@ -1,13 +1,59 @@
 import copy
+import ast
+from types import SimpleNamespace
 import unittest
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
-from operations import engine_state, overview, confirmation_text, incident_rows, validate_events, details_text
+from operations import engine_state, overview, confirmation_text, incident_rows, validate_events, details_text, ActionObservation
 import test_monitor
 import test_diagnostics
 
 
 class OperationsTests(unittest.TestCase):
+    def test_actual_client_dispatch_uses_fresh_baseline_and_fixed_distinct_methods(self):
+        tree=ast.parse(Path(__file__).with_name('monitor.py').read_text(encoding='utf-8'))
+        cls=next(x for x in tree.body if isinstance(x,ast.ClassDef) and x.name=='SystemdClient')
+        method=next(x for x in cls.body if isinstance(x,ast.FunctionDef) and x.name=='control')
+        from monitor_core import control_request
+        scope=dict(control_request=control_request,GLib=SimpleNamespace(Variant=lambda kind,value:value))
+        exec(compile(ast.Module(body=[method],type_ignores=[]),'actual-control','exec'),scope)
+        for verb,name in [('start','StartUnit'),('stop','StopUnit'),('restart','RestartUnit')]:
+            calls=[];unit=dict(MainPID=321)
+            client=SimpleNamespace(status=lambda:(calls.append('baseline') or unit,None),
+                                   call=lambda *args,**kwargs:calls.append((args,kwargs)) or ('/job/1',))
+            receipt=scope['control'](client,verb)
+            self.assertEqual(calls[0],'baseline');self.assertEqual(calls[1][0][2],name)
+            self.assertEqual(calls[1][0][3],('hostsguardian-engine.service','replace'))
+            self.assertTrue(calls[1][1]['interactive']);self.assertEqual(receipt['baseline'],unit)
+
+    def test_control_observation_distinguishes_acknowledgment_success_and_timeout(self):
+        tick=[0.0];action=ActionObservation(clock=lambda:tick[0])
+        active=dict(ActiveState='active',SubState='running',MainPID=123)
+        action.begin('stop',active);self.assertTrue(action.active)
+        self.assertIn('waiting',action.observe(active))
+        self.assertIn('confirmed',action.observe(dict(ActiveState='inactive',MainPID=0)))
+        self.assertFalse(action.active)
+        action.begin('restart',active)
+        self.assertIn('waiting',action.observe(active))
+        self.assertIn('Restart observation',action.observe(active | dict(MainPID=124)))
+        action.begin('start',dict(ActiveState='inactive',MainPID=0))
+        self.assertIn('confirmed',action.observe(active))
+        action.begin('stop',active);tick[0]=60
+        self.assertIn('Timed out',action.observe(active));self.assertFalse(action.active)
+
+    def test_control_failure_conflict_and_clock_regression_are_not_success(self):
+        tick=[10.0];action=ActionObservation(clock=lambda:tick[0])
+        action.begin('restart',dict(MainPID=123))
+        with self.assertRaises(ValueError):action.begin('stop',{})
+        self.assertIn('failed',action.observe(dict(ActiveState='failed',MainPID=0)))
+        action.begin('stop',{});tick[0]=9
+        self.assertIn('Timed out',action.observe({}));self.assertFalse(action.active)
+        action.begin('start',{});self.assertIn('refused',action.fail('authorization refused'))
+        self.assertFalse(action.active)
+        action.begin('restart',{})
+        self.assertIn('waiting',action.observe(dict(ActiveState='active',SubState='running',MainPID=123)))
+        self.assertTrue(action.active)
+
     def setUp(self):
         old = test_monitor.MonitorTests(); old.setUp(); self.snapshot = old.value
         diagnostic = test_diagnostics.DiagnosticsTests(); diagnostic.setUp(); self.diagnostic = diagnostic.value

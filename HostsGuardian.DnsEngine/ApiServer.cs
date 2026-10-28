@@ -295,7 +295,11 @@ public sealed class ApiServer : IAsyncDisposable
                 await context.Response.WriteAsJsonAsync(new { schemaVersion = 1, available = _policy.Audit.Available,
                     maximumEntries = PolicyAuditStore.MaximumEntries, entries = audit.TakeLast(100).Reverse().ToArray() }); return true;
             case "/v2/dns-observations":
-                await context.Response.WriteAsJsonAsync(new { capacity = 64, observations = _observations.Read() });
+                await context.Response.WriteAsJsonAsync(new { capacity = DnsObservationStore.Capacity,
+                    queueCapacity = DnsObservationStore.QueueCapacity, retentionSeconds = 900,
+                    dropped = _observations.Dropped, evicted = _observations.Evicted,
+                    deliveryEvidence = "TransportWriteSucceeded means local socket write; client receipt/application outcome require external evidence",
+                    observations = _observations.Read() });
                 return true;
             case "/v2/capabilities":
                 await context.Response.WriteAsJsonAsync(new { apiVersion = 2, policySchemaVersion = 2, supportedPolicySchemas = new[] { 2, 3 },

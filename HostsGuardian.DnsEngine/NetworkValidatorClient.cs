@@ -11,7 +11,7 @@ public interface IEndpointValidator
     string FailureReason=>"Validator unavailable";
 }
 
-/// <summary>One bounded exchange; only a background producer calls this client.</summary>
+/// <summary>One bounded authenticated exchange, shared by background and receive-only request refresh.</summary>
 public sealed class NetworkValidatorClient(string path,IValidatorEndpointTrust? trust=null):IEndpointValidator
 {
     private readonly IValidatorEndpointTrust _trust=trust ?? new LinuxValidatorEndpointTrust();

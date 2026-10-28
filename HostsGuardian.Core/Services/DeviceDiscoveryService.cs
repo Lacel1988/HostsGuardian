@@ -135,7 +135,7 @@ namespace HostsGuardian.Core.Services
         private static List<NetworkDevice> ParseArp(string arpText)
         {
             // Windows arp -a tipikus sor:
-            //  192.168.0.1           aa-bb-cc-dd-ee-ff     dynamic
+            //  192.0.2.1             02-00-00-00-00-01     dynamic
             var rx = new Regex(@"(?<ip>\d{1,3}(\.\d{1,3}){3})\s+(?<mac>([0-9a-f]{2}-){5}[0-9a-f]{2})",
                 RegexOptions.IgnoreCase);
 

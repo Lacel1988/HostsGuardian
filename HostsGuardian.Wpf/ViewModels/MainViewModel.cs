@@ -655,6 +655,10 @@ namespace HostsGuardian.Wpf.ViewModels
         public ICommand EnterEngineSafeModeCommand { get; }
         public ICommand ExitEngineSafeModeCommand { get; }
         public string EngineSafeModeText => L.T(_engineStatus.SafeMode);
+        private string _policyReadback = "Policy readback: not read";
+        public string EnginePolicyReadbackText => L.T(_policyReadback);
+        private void SetPolicyReadback(string value)
+        { _policyReadback = value; OnPropertyChanged(nameof(EnginePolicyReadbackText)); }
         public string EngineStatusDetailsText => _engineStatus.Current is not { } status ? L.T("Current status details: Unknown / unconfirmed") :
             L.F("Revision: {0}; instance: {1}\nGlobal rules: {2}/{3}; device rules: {4}/{5}\nPolicy loaded: {6}; restore: {7}\nPersistence fault: {8}\nSafe Mode reason: {9}\nUpstream observation: {10}\nLast success: {11}; last failure: {12}\nHistorical failure does not establish a current outage.",
                 status.PolicyRevision, status.InstanceId, status.CommittedRuleCount, status.ActiveRuleCount,
@@ -1282,7 +1286,13 @@ namespace HostsGuardian.Wpf.ViewModels
                 var policy=await _dnsEngine.ReadFullPolicyAsync(_config.DnsEngine);
                 var bindings=await _dnsEngine.ReadBindingsAsync(_config.DnsEngine);
                 var status=await _dnsEngine.TestConnectionAsync(_config.DnsEngine);
-                if(_engineRequestPending || generation!=_engineSettingsGeneration || !policy.Connection.Ok || !bindings.Connection.Ok || !status.Ok ||
+                if(_engineRequestPending || generation!=_engineSettingsGeneration)return;
+                _engineStatus.Complete(status);
+                ObserveConnection(status);
+                SetPolicyReadback(policy.Connection.Ok && policy.Policy is not null
+                    ? "Policy readback: read; delivery remains separate"
+                    : "Policy readback failed; connection status is separate");
+                if(!policy.Connection.Ok || !bindings.Connection.Ok || !status.Ok ||
                     policy.Policy is null || status.Transport?.InstanceId!=policy.Policy.InstanceId ||
                     status.Transport.PolicyRevision!=policy.Policy.Revision)return;
                 _enforcementPolicy=policy.Policy;_enforcementBindings=bindings.Bindings;
@@ -1295,8 +1305,8 @@ namespace HostsGuardian.Wpf.ViewModels
                 _engineStatus.Complete(status,PolicyBackup.Export(draft)==PolicyBackup.Export(policy.Policy.Policy)?policy.Policy.Revision:null);
                 ObserveConnection(status);
             }
-            catch { _enforcementReadAt=null; }
-            finally { _enforcementRequestPending=false; UpdateDnsEngineStatusText(); OnPropertyChanged(nameof(DeviceEnforcementText)); }
+            catch { if (generation == _engineSettingsGeneration) _enforcementReadAt=null; }
+            finally { if (generation == _engineSettingsGeneration) { _enforcementRequestPending=false; UpdateDnsEngineStatusText(); OnPropertyChanged(nameof(DeviceEnforcementText)); } }
         }
         public ICommand LoadFullPolicyCommand { get; }
         public ICommand ExplainSelectedPolicyCommand { get; }
@@ -1333,24 +1343,50 @@ namespace HostsGuardian.Wpf.ViewModels
                 }
                 else LastError = L.T(read.Connection.Message);
             }
-            catch { _effectiveObservedUtc = null; LastError = L.T("Engine effective policy could not be read."); }
-            finally { _engineRequestPending = false; OnPropertyChanged(nameof(EngineEffectivePolicy)); OnPropertyChanged(nameof(EngineEffectivePolicyDiagnostics)); }
+            catch { if (generation == _engineSettingsGeneration) { _effectiveObservedUtc = null; LastError = L.T("Engine effective policy could not be read."); } }
+            finally { if (generation == _engineSettingsGeneration) { _engineRequestPending = false; OnPropertyChanged(nameof(EngineEffectivePolicy)); OnPropertyChanged(nameof(EngineEffectivePolicyDiagnostics)); } }
         }
         public ICommand RegisterSelectedDeviceCommand { get; }
         public ICommand ForgetSelectedDeviceCommand {get;}
+        public ICommand RestoreDeviceRulesCommand => new RelayCommand(RestoreDeviceRules);
+        private void RestoreDeviceRules()
+        {
+            if (_engineRequestPending || SelectedDevice?.DeviceId is not Guid id) return;
+            var points = _config.DeviceRuleRestorePoints.Where(p => p.DeviceId == id).ToArray();
+            if (points.Length == 0) return;
+            var previous = _config.DeviceDomainPolicy;
+            var previousPoints = _config.DeviceRuleRestorePoints;
+            try
+            {
+                _config.DeviceDomainPolicy = DeviceOverrideRestore.Apply(previous, points);
+                _config.DeviceRuleRestorePoints = previousPoints.Where(p => p.DeviceId != id).ToList();
+                _configService.Save(_config);
+                LastError = "";
+                SafeLog(new ActivityEvent("WPF user action", "Policy", "Restored original device rules: {0}",
+                    new[] { id.ToString() }, Target: id.ToString(), Action: "ExactRestore", Outcome: "LocalDraftSaved"), "INFO");
+                _engineStatus.InvalidateSelection(); RefreshDeviceDetail(); UpdateDnsEngineStatusText();
+            }
+            catch (Exception error)
+            {
+                _config.DeviceDomainPolicy = previous; _config.DeviceRuleRestorePoints = previousPoints;
+                ObserveDraftSaveFailure(true); Fail(L.T("Restore.Failed"), error);
+            }
+        }
         private void ForgetSelectedDevice()
         {
             if(SelectedDevice?.DeviceId is not Guid id)return;
             if(!LocalizedDialogs.Confirm(Application.Current?.MainWindow,L.T("Inventory.ForgetImpact"),L.T("Inventory.Forget")))return;
             var previous=_config.DeviceDomainPolicy;
+            var previousPoints=_config.DeviceRuleRestorePoints;
             try
             {
-                _config.DeviceDomainPolicy=DeviceInventory.Forget(previous,id);_configService.Save(_config);
+                _config.DeviceDomainPolicy=DeviceInventory.Forget(previous,id);
+                _config.DeviceRuleRestorePoints=previousPoints.Where(p=>p.DeviceId!=id).ToList();_configService.Save(_config);
                 var selected=SelectedDevice;Devices.Remove(selected!);SelectedDevice=null;
                 _engineStatus.InvalidateSelection();UpdateDnsEngineStatusText();
                 SafeLog(L.T("Inventory.Forgotten"),"INFO");
             }
-            catch { _config.DeviceDomainPolicy=previous;LastError=L.T("Inventory.ForgetFailed"); }
+            catch { _config.DeviceDomainPolicy=previous;_config.DeviceRuleRestorePoints=previousPoints;LastError=L.T("Inventory.ForgetFailed"); }
         }
         public ObservableCollection<DeviceDomainRuleVm> DeviceDomainRules { get; } = new();
         public Array OverrideStates => Enum.GetValues(typeof(DeviceDomainRuleState));
@@ -1377,6 +1413,11 @@ namespace HostsGuardian.Wpf.ViewModels
                 DeviceDomainRules.Add(new(domain, state, value =>
                 {
                     var previous = _config.DeviceDomainPolicy;
+                    var previousPoints = _config.DeviceRuleRestorePoints;
+                    if (!previous.Devices.Any(d => d.DeviceId == id)) return false;
+                    if (!previousPoints.Any(p => p.DeviceId == id && p.Domain == domain))
+                        _config.DeviceRuleRestorePoints = previousPoints.Append(new DeviceOverrideRestorePoint(id, domain,
+                            previous.Overrides.FirstOrDefault(o => o.DeviceId == id && o.Domain == domain))).ToList();
                     var rules = previous.Overrides.Where(o => o.DeviceId != id || o.Domain != domain).ToImmutableArray();
                     _config.DeviceDomainPolicy = previous with { Overrides = rules.Add(new(id, domain, value)) };
                     try
@@ -1384,7 +1425,7 @@ namespace HostsGuardian.Wpf.ViewModels
                         _config.DeviceDomainPolicy = PolicyCanonicalization.Canonicalize(_config.DeviceDomainPolicy);
                         _configService.Save(_config);
                     }
-                    catch { _config.DeviceDomainPolicy = previous; LastError = L.T("Override was not saved; previous selection retained."); ObserveDraftSaveFailure(true); return false; }
+                    catch { _config.DeviceDomainPolicy = previous; _config.DeviceRuleRestorePoints = previousPoints; LastError = L.T("Override was not saved; previous selection retained."); ObserveDraftSaveFailure(true); return false; }
                     LastError = ""; ObserveDraftSaveFailure(false);
                     SafeLog(new ActivityEvent("WPF user action", "Policy", "Local device rule: {0}; {1}; {2} → {3}; Engine policy unchanged",
                         new[] { id.ToString(), domain, state.ToString(), value.ToString() }, Target: id + "/" + domain,
@@ -1448,13 +1489,16 @@ namespace HostsGuardian.Wpf.ViewModels
                 var read = await _dnsEngine.ReadFullPolicyAsync(_config.DnsEngine);
                 if (generation != _engineSettingsGeneration) return;
                 ObserveConnection(read.Connection);
-                if (!read.Connection.Ok || read.Policy == null) { LastError = L.T(read.Connection.Message); ObservePolicyFailure(true); return; }
+                if (!read.Connection.Ok || read.Policy == null) { SetPolicyReadback("Policy readback failed; connection status is separate"); LastError = L.T(read.Connection.Message); ObservePolicyFailure(true); return; }
                 // Import is local only, and persistence must succeed before accepting a new baseline.
                 var previous = _config.DeviceDomainPolicy;
+                var previousPoints = _config.DeviceRuleRestorePoints;
                 _config.DeviceDomainPolicy = PolicyCanonicalization.Canonicalize(read.Policy.Policy);
+                _config.DeviceRuleRestorePoints = new();
                 try { _configService.Save(_config); }
-                catch { _config.DeviceDomainPolicy = previous; throw; }
+                catch { _config.DeviceDomainPolicy = previous; _config.DeviceRuleRestorePoints = previousPoints; throw; }
                 _fullPolicyBaseline = read.Policy;
+                SetPolicyReadback("Policy readback: read; delivery remains separate");
                 _deviceDeliveryFailed=false;
                 var fresh = await _dnsEngine.TestConnectionAsync(_config.DnsEngine);
                 if (generation != _engineSettingsGeneration) return;
@@ -1470,9 +1514,9 @@ namespace HostsGuardian.Wpf.ViewModels
                 SelectedDevice=selectedDevice is not null && Devices.Contains(selectedDevice)?selectedDevice:Devices.FirstOrDefault();
                 RefreshDeviceDetail();
             }
-            catch { LastError = L.T("Full policy could not be read; local draft not synchronized."); ObservePolicyFailure(true); }
-            finally { _engineRequestPending = false; UpdateDnsEngineStatusText(); }
-            await RefreshEnforcementAsync();
+            catch { if (generation == _engineSettingsGeneration) { SetPolicyReadback("Policy readback failed; connection status is separate"); LastError = L.T("Full policy could not be read; local draft not synchronized."); ObservePolicyFailure(true); } }
+            finally { if (generation == _engineSettingsGeneration) { _engineRequestPending = false; UpdateDnsEngineStatusText(); } }
+            if (generation == _engineSettingsGeneration) await RefreshEnforcementAsync();
         }
 
         // ===================== DNS ENGINE ACTIONS =====================
@@ -1489,21 +1533,41 @@ namespace HostsGuardian.Wpf.ViewModels
             OnPropertyChanged(nameof(EngineEffectivePolicy)); OnPropertyChanged(nameof(EngineEffectivePolicyDiagnostics));
             OnPropertyChanged(nameof(EngineSafeModeText));
             OnPropertyChanged(nameof(EngineStatusDetailsText));
+            OnPropertyChanged(nameof(EnginePolicyReadbackText));
             (EnterEngineSafeModeCommand as RelayCommand)?.RaiseCanExecuteChanged();
             (ExitEngineSafeModeCommand as RelayCommand)?.RaiseCanExecuteChanged();
         }
 
-        public void OpenEngineSettings()
+        public async void OpenEngineSettings()
         {
+            var previous = System.Text.Json.JsonSerializer.Serialize(_config.DnsEngine);
             var dialog = new HostsGuardian.Wpf.EngineConnectionWindow(_config, _configService) { Owner = Application.Current.MainWindow };
             dialog.ShowDialog();
+            await CompleteEngineSettingsAsync(previous, dialog.SaveSucceeded);
+        }
+
+        private async Task CompleteEngineSettingsAsync(string previous, bool saved)
+        {
+            var changed = previous != System.Text.Json.JsonSerializer.Serialize(_config.DnsEngine);
+            if (!saved && !changed) return;
             _engineSettingsGeneration++;
-            _engineStatus.Reset();
-            _fullPolicyBaseline = null;
+            // Superseded requests may finish, but their generation cannot publish or
+            // clear the pending flag belonging to the new endpoint's request.
+            _engineRequestPending = false;
+            _enforcementRequestPending = false;
+            if (changed)
+            {
+                _engineStatus.Reset();
+                _fullPolicyBaseline = null;
+                _enforcementReadAt = null;
+                _effectiveObservedUtc = null;
+                SetPolicyReadback("Policy readback: not read");
+            }
             _dnsEngineBaseUrl = _config.DnsEngine.BaseUrl;
             OnPropertyChanged(nameof(DnsEngineBaseUrl));
             OnPropertyChanged(nameof(EngineApiBaseUrl));
             UpdateDnsEngineStatusText();
+            if (saved) await RefreshConnectionAsync();
         }
 
         private async void EnterEngineSafeMode() => await ChangeEngineSafeModeAsync(true);
@@ -1541,10 +1605,12 @@ namespace HostsGuardian.Wpf.ViewModels
                     ObserveConnection(new(ConnectionState.NetworkFailure, LastError));
                 }
             }
-            finally { _engineRequestPending = false; UpdateDnsEngineStatusText(); RefreshActivity(); }
+            finally { if (generation == _engineSettingsGeneration) { _engineRequestPending = false; UpdateDnsEngineStatusText(); RefreshActivity(); } }
         }
 
-        private async void TestDnsEngine()
+        private async void TestDnsEngine() => await RefreshConnectionAsync();
+
+        private async Task RefreshConnectionAsync()
         {
             if (_engineRequestPending) return;
             _engineRequestPending = true; LastError = "";
@@ -1569,13 +1635,15 @@ namespace HostsGuardian.Wpf.ViewModels
                     ObserveConnection(new(ConnectionState.NetworkFailure, LastError));
                 }
             }
-            finally { _engineRequestPending = false; UpdateDnsEngineStatusText(); RefreshActivity(); }
+            finally { if (generation == _engineSettingsGeneration) { _engineRequestPending = false; UpdateDnsEngineStatusText(); RefreshActivity(); } }
         }
 
         private async void PushDnsRules()
         {
             if (_engineRequestPending) return;
             if (HasUnsavedIdentityEdits) { LastError=L.T("DeviceFlow.SaveFirst"); return; }
+            if (_fullPolicyBaseline == null)
+            { LastError = L.T("Read Engine device policy before sending the draft."); ObservePolicyFailure(true); return; }
             _engineRequestPending = true; LastError = "";
             var generation = _engineSettingsGeneration;
             _engineStatus.BeginRequest();
@@ -1585,7 +1653,6 @@ namespace HostsGuardian.Wpf.ViewModels
             {
                 var domains = DomainPolicySelection.ForDns(_config.BlockedDomains);
                 _configService.Save(_config);
-                if (_fullPolicyBaseline == null) { LastError = L.T("Read Engine device policy before sending the draft."); _engineStatus.Complete(new(ConnectionState.Incompatible, LastError)); ObservePolicyFailure(true); return; }
                 var outgoing = PolicyCanonicalization.Canonicalize(_config.DeviceDomainPolicy with { GlobalBlockedDomains = domains.ToImmutableArray() });
                 var confirmation = await _dnsEngine.ReplaceFullPolicyFromBaselineAsync(_config.DnsEngine, _fullPolicyBaseline, outgoing);
                 if (generation != _engineSettingsGeneration) return;
@@ -1612,7 +1679,7 @@ namespace HostsGuardian.Wpf.ViewModels
                     ObservePolicyFailure(true);
                 }
             }
-            finally { _engineRequestPending = false; UpdateDnsEngineStatusText(); RefreshActivity(); }
+            finally { if (generation == _engineSettingsGeneration) { _engineRequestPending = false; UpdateDnsEngineStatusText(); RefreshActivity(); } }
         }
 
         // ===================== LOG COMMAND IMPLEMENTATIONS =====================

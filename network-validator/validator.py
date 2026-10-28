@@ -156,18 +156,21 @@ class PassiveDnsEvidence:
         self.lock = threading.Lock(); self.rows = {}; self.states = {}; self.ready = False
         self.blocked_until = 0; self.last_clock = None; self.reason = 'Passive receiver not ready'
         self.stop = threading.Event(); self.thread = None
+        self.generation = 0
+        self.instance = os.urandom(16).hex()
 
     def invalidate(self, reason):
         with self.lock:
             self.rows.clear(); self.ready = False; self.reason = reason
             self.blocked_until = self.clock() + PASSIVE_TTL
 
-    def observe(self, frame, peer, interface, state):
+    def observe(self, frame, peer, interface, state, generation=None):
         claim = passive_dns_claim(frame, peer, interface, state)
         if claim is None: return
         now = self.clock(); observed = self.wall()
         with self.lock:
             if not self.ready or now < self.blocked_until: return
+            if (generation is not None and generation != self.generation) or self.states.get(interface) != state: return
             if self.last_clock is not None and now < self.last_clock:
                 self.rows.clear(); self.ready = False; self.reason = 'Monotonic clock regression'; return
             self.last_clock = now
@@ -189,41 +192,64 @@ class PassiveDnsEvidence:
             if not complete: self.rows.clear()
             self.rows = {k:v for k,v in self.rows.items() if 0 <= now-v[0] < PASSIVE_TTL and v[1] <= wall < v[1]+timedelta(seconds=PASSIVE_TTL)}
             rows = [dict(interface=k[0], address=k[1], mac=k[2], observedAtUtc=v[1].isoformat(), expiresAtUtc=(v[1]+timedelta(seconds=PASSIVE_TTL)).isoformat()) for k,v in sorted(self.rows.items())] if complete else []
-            return dict(requestId=request_id, method='PassiveDnsL2', complete=complete, readAtUtc=wall.isoformat(), reason='Incoming Ethernet DNS; unauthenticated network claim' if complete else self.reason, evidence=rows)
+            return dict(requestId=request_id, method='PassiveDnsL2', complete=complete, readAtUtc=wall.isoformat(), reason='Incoming Ethernet DNS; unauthenticated network claim' if complete else self.reason, evidence=rows,
+                        captureInstance=self.instance, interfaceGeneration=self.generation, captureState='READY' if complete else 'UNAVAILABLE', ipv6IdentityState='UnsupportedPassiveEvidence')
 
     def start(self):
         if not 1 <= len(self.allowed) <= 2: raise ValueError('Passive capture requires one or two approved interfaces')
+        if self.thread is not None: raise ValueError('Passive receiver already started')
         self.thread = threading.Thread(target=self._receive, name='passive-dns', daemon=True); self.thread.start()
 
     def _receive(self):
+        # Continue recovery for the lifetime of the helper, but cap retry frequency.
+        backoff = .25
+        while not self.stop.is_set():
+            healthy = self._receive_generation()
+            if self.stop.is_set(): break
+            if healthy: backoff = .25
+            if self.stop.wait(backoff): break
+            backoff = min(5.0, backoff * 2)
+
+    def _receive_generation(self):
         sockets = {}
+        healthy = False
         try:
             states = {name:self.state(name) for name in self.allowed}
             for name in sorted(self.allowed):
                 raw = socket.socket(socket.AF_PACKET, socket.SOCK_RAW, socket.htons(0x0800)); sockets[raw] = name
                 raw.bind((name, 0)); raw.setblocking(False)
                 # No send(), PACKET_ADD_MEMBERSHIP or promiscuous mode.
-            with self.lock: self.states = states; self.ready = True; self.reason = 'Passive receiver ready'
+            # Recheck after bind: state may have changed while opening sockets.
+            if {name:self.state(name) for name in self.allowed} != states: raise ValueError('Interface changed during capture open')
+            with self.lock:
+                self.generation += 1; generation = self.generation
+                self.rows.clear(); self.states = states
+                self.ready = True; self.reason = 'Passive receiver ready'
             next_check = self.clock() + 1; count = 0
             while not self.stop.is_set():
                 now = self.clock()
                 if now >= next_check:
                     if {name:self.state(name) for name in self.allowed} != states: raise ValueError('Interface changed')
+                    healthy = True
                     for raw in sockets:
                         _, drops = struct.unpack('II', raw.getsockopt(263, 6, 8))  # PACKET_STATISTICS, resets counters
                         if drops: self.invalidate('Passive packet loss')
                     with self.lock:
-                        if now >= self.blocked_until: self.ready = True
+                        if now >= self.blocked_until:
+                            self.ready = True; self.reason = 'Passive receiver ready'
                     count = 0; next_check = now + 1
                 readable, _, _ = select.select(list(sockets), [], [], .05)
                 for raw in readable:
                     frame, peer = raw.recvfrom(MAX_FRAME+1); count += 1
                     if count > 1024: self.invalidate('Passive receive budget exceeded')
-                    else: self.observe(frame, peer, sockets[raw], states[sockets[raw]])
+                    else: self.observe(frame, peer, sockets[raw], states[sockets[raw]], generation)
         except (OSError, ValueError, AttributeError): self.invalidate('Passive receiver unavailable or interface changed')
         finally:
-            for raw in sockets: raw.close()
+            for raw in sockets:
+                try: raw.close()
+                except OSError: pass
             self.invalidate('Passive receiver stopped')
+        return healthy
 
 
 class Validator:

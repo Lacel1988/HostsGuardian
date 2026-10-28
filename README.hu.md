@@ -4,7 +4,9 @@
 
 C#/.NET DNS-policy projekt Windows WPF Control Centerrel, Linux DNS Engine-nel és Linux diagnosztikai Monitorral.
 
-> **v0.4.0 — pre-1.0, fejlesztés alatt.** A globális DNS Block/Restore valódi végponti bizonyítékkal rendelkezik. A megbízható eszközspecifikus enforcement és teljes LAN-lefedettség nincs igazolva. Nem kész hálózatvédelmi berendezés.
+> **Pre-1.0 fejlesztői jelölt, v0.4.0 alapokon.** A korábbi globális DNS Block/Restore bizonyítékát lent ismertetjük. A jelenlegi forrásnak helyi regressziós lefedettsége van; új éles elfogadási vizsgálat nem történt. A megbízható eszközspecifikus védelem és teljes LAN-lefedettség nincs igazolva.
+
+Publikálás előkészítése: **2026. október 28.** A munkafa nem új commit, tag, bináris kiadás vagy telepítés. A [verifikációs jelentés](docs/publication-verification-2026-10-28.md) külön kezeli a forrásteszteket, a verzióazonosságot és a korábbi működési bizonyítékot.
 
 ## Cél és architektúra
 
@@ -18,7 +20,7 @@ A WPF kezeli a regisztrációt, felhasználói nevet/típust és döntéseket; h
 
 | Képesség | Állapot |
 |---|---|
-| WPF indulás, Domains/Devices, EN/HU | VERIFIED: emberi felülvizsgálat, kijelölt csomag elindult. |
+| WPF indulás, Domains/Devices, EN/HU | Korábbi csomag emberi ellenőrzése; a jelenlegi WPF izolált regressziói sikeresek. |
 | Globális WPF Block → valódi sinkhole → Restore | VERIFIED: 2026. október 13. |
 | IPv4/IPv6 UDP/TCP, upstream | IMPLEMENTED, korábbi deployment/readiness; nem teljes LAN. |
 | Registry, név/típus, device policy | IMPLEMENTED; megbízható éles szelektív enforcement PARTIAL / UNVERIFIED. |
@@ -27,7 +29,10 @@ A WPF kezeli a regisztrációt, felhasználói nevet/típust és döntéseket; h
 | Csoport/profil/schedule/service catalog | IMPLEMENTED szerződés/evaluator; teljes valódi eszközteszt UNVERIFIED. |
 | Notification/audit/log | IMPLEMENTED / PARTIAL; rekord nem bizonyít natív kézbesítést. |
 | Monitor blokkolási adatcsatorna | VERIFIED; GUI-esemény UNVERIFIED. |
-| Receiver recovery, bounded refresh, új telemetry/recovery | Helyi candidate; e dokumentációs checkpoint nem publikálja forrásként és nem állítja telepítettnek. |
+| Receiver recovery és korlátozott frissítés | A jelölt része generáció-, timeout- és megszakítási regressziókkal; éles igazolásra vár. |
+| Korrelált DNS-diagnosztika | 512 várakozó esemény, 2048 döntés, 15 perc monoton megőrzés és veszteségszámlálók; helyi socket-write nem kliensoldali kézbesítés. |
+| Pontos eszközszabály-visszaállítás és kapcsolati állapot | ABSENT/Inherit/Allow/Block megőrzése és WPF mocktesztek; az elküldés külön művelet. |
+| Védett frissítés és helyreállítás | Forrás és izolált tesztek megtartva; root/PID1, hard-kill és reboot éles igazolása még szükséges. |
 | Teljes LAN / Network Enforcement | BLOCKED: coverage és kötelező chokepoint nem igazolt. |
 
 Részletes forrás/teszt és megőrzött koncepció: [Architecture and roadmap](docs/ARCHITECTURE_AND_ROADMAP.md).
@@ -38,11 +43,11 @@ Részletes forrás/teszt és megőrzött koncepció: [Architecture and roadmap](
 
 Immutable policy snapshot/CAS: `EnginePolicyState.cs`, `PolicyApplicationService.cs`. Determinisztikus precedence: Device override → aktív profil/schedule → csoport → globális, azonos szinten Block győz (`PolicyDecision.cs`). Normalizált pontos és ponttal elválasztott aldomainillesztés (`DevicePolicyEvaluator.cs`). Korlátozott konkurencia/timeout (`DnsProxyServer.cs`, `DnsRequestProcessor.cs`). Evidence-alapú identitás, történelmi IP önmagában nem elég (`AddressBindingStore.cs`).
 
-Adaptív Simple/Indexed, tanuló service discovery, SQLite/WAL nincs megvalósítottként állítva. Fix index és bounded queue külön helyi candidate.
+Adaptív Simple/Indexed, tanuló service discovery, SQLite/WAL nincs megvalósítottként állítva. A fix, változtathatatlan cím/scope index és a korlátozott diagnosztikai sor a jelenlegi forrás része.
 
-## Valódi DNS-bizonyíték
+## Korábbi valódi DNS-bizonyíték
 
-2026. október 13-án kontrollált Windows kliens közvetlenül az Engine-t kérdezte `example.com`-ról:
+A korábbi dokumentáció az alábbi kontrollált Windows–Linux Engine tesztet rögzíti **2026. október 13-áról**, `example.com` lekérdezéssel. A publikálási ellenőrzés során ezt nem ismételtük meg; a teszt nem igazolja a jelenlegi jelölt éles telepítettségét:
 
 | Fázis | Válasz |
 |---|---|
@@ -68,7 +73,9 @@ dotnet run --project HostsGuardian.Wpf.RegressionTests -c Release
 
 Windows/.NET 8 WPF szükséges. Python: külön `network-validator`, `linux-monitor`, `development/roadmap` könyvtárban `python3 -B -m unittest discover -v`. GTK-hoz Linux grafikus függőségek szükségesek; skip nem végrehajtott GUI-teszt. Development build nem automatikusan elfogadott release.
 
-Megőrzött candidate: Core/Engine 332 PASS; WPF 33 PASS; Windows helper 82 PASS + 1 skip; recovery 36 PASS; Monitor 60 PASS + 22 skip. Linux fixture: Core/Engine 332, helper 83, recovery 36 PASS; Monitor 63 PASS + 19 skip. Ezek korábbi candidate-regressziók, nem e dokumentációs commit új tesztjei vagy produkciós acceptance.
+A friss Windows tesztmátrix, parancsok, kihagyások és verziókorlátok a [verifikációs jelentésben](docs/publication-verification-2026-10-28.md) találhatók. Core/Engine: **332 sikeres csoport**; WPF: **39 PASS üzenet**, 0 kilépési kód. A Python-eredmények külön jelzik a sikeres és kihagyott teszteket. A GTK-kihagyás nem GUI-siker; a régebbi Linux-eredmények történelmi bizonyítékok.
+
+A recovery szkriptek karbantartott források, nem törlendő lemezképek. Generált privát session, credential, tanúsítvány, buildkimenet és recovery image ne kerüljön Gitbe. A transfer bootstrap alapkönyvtára `/var/tmp/hostsguardian-transfer`; a csomagkészítő explicit `transferDirectory` értéket adhat meg. A bootstrap előállítása nem végez és nem engedélyez telepítést.
 
 ## Biztonság
 
@@ -85,4 +92,4 @@ STALE neighbour nem online bizonyíték. Regisztráció, GUI-kapcsoló, draft é
 
 IPv6 attribúció, natív notification/schedule acceptance, populated device-policy és generikus éles recovery nincs teljesen igazolva. Természetes forgalom/incidens opportunisztikus bizonyíték. systemd reload és történelmi caveat az aktuális deploymentnél ellenőrzendő; e publikálás runtime-ot nem változtat.
 
-**Fejlesztés alatt:** hasznos globális DNS-szűrés igazolt; megbízható általános eszközenforcement a következő acceptance. Nincs új deployment, tag vagy bináris release.
+**Fejlesztés alatt:** korábbi globális DNS-szűrés dokumentálva; megbízható általános eszközenforcement a következő acceptance. Nincs új deployment, tag vagy bináris release. A program a repository MIT licencét használja; a betűkészletek külön [Orbitron](HostsGuardian.Wpf/Assets/Fonts/OFL.txt) és [Exo](HostsGuardian.Wpf/Assets/Fonts/Exo-OFL.txt) értesítéseit megőrizzük.

@@ -104,6 +104,7 @@ internal static class Program
         UxTests.Run(args.FirstOrDefault());
         RoadmapUxTests.Run();
         RegistrationConsistencyTests.Run();
+        EngineSettingsSynchronizationTests.Run();
         NotificationAcceptanceTests.Run();
         return 0;
     }

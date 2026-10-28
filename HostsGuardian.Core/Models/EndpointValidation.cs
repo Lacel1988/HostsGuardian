@@ -10,6 +10,9 @@ public sealed record ValidatorHealth(string State,string Reason,bool ActiveValid
     public string ModeReason {get;init;}="Disabled";
     public string PassiveDnsL2State {get;init;}="Disabled";
     public string PassiveDnsL2Reason {get;init;}="Receive-only evidence not enabled";
+    public string Ipv6IdentityState {get;init;}="UnsupportedPassiveEvidence";
+    public string? CaptureInstance {get;init;}
+    public long InterfaceGeneration {get;init;}
 }
 public sealed record EndpointValidationResult(string RequestId,string Address,string Interface,
     DateTimeOffset RequestedAtUtc,DateTimeOffset ObservedAtUtc,DateTimeOffset? ConfirmedAtUtc,

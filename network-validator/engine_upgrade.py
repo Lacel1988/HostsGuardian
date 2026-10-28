@@ -29,6 +29,53 @@ class EngineUpgrade(Deployment):
         super().__init__(stage,manifest,baseline)
         self.touched=False
 
+    def override_content(self):
+        if str(UPGRADE_DROPIN) in self.baseline.get('unitFiles',{}):
+            original=(self.backup/'engine-override.original').read_text()
+            original=re.sub(r'^ExecStart=.+$',lambda m:'ExecStart='+str(self.release/'engine/HostsGuardian.DnsEngine'),original,flags=re.M)
+            original=re.sub(r'^WorkingDirectory=.*$',lambda m:'WorkingDirectory='+str(self.release/'engine'),original,flags=re.M)
+            return (original.rstrip('\n')+'\nEnvironment=HOSTSGUARDIAN_ACTIVE_VALIDATION=0\nEnvironment=HOSTSGUARDIAN_ACTIVE_VALIDATION_DEVICE_IDS=\nEnvironment=HOSTSGUARDIAN_ACTIVE_VALIDATION_SECONDS=\n').encode()
+        return ('[Service]\nExecStart=\nExecStart='+str(self.release/'engine/HostsGuardian.DnsEngine')+'\nWorkingDirectory='+str(self.release/'engine')+'\nEnvironment=HOSTSGUARDIAN_ACTIVE_VALIDATION=0\nEnvironment=HOSTSGUARDIAN_ACTIVE_VALIDATION_DEVICE_IDS=\nEnvironment=HOSTSGUARDIAN_ACTIVE_VALIDATION_SECONDS=\n').encode()
+
+    def preserved(self):
+        b=self.baseline
+        for name,digest in b['unitFiles'].items():
+            if name==str(UPGRADE_DROPIN) and self.touched:
+                if UPGRADE_DROPIN.read_bytes()!=self.override_content():return False
+            elif sha(name)!=digest:return False
+        if str(UPGRADE_DROPIN) not in b['unitFiles']:
+            if self.touched:
+                if UPGRADE_DROPIN.read_bytes()!=self.override_content():return False
+            elif UPGRADE_DROPIN.exists() or UPGRADE_DROPIN.is_symlink():return False
+        return sha(b['policyPath'])==b['policySha256'] and all(sha(n)==d for n,d in b['securityFiles'].items())
+
+    def save_override(self):
+        expected=self.baseline['unitFiles'].get(str(UPGRADE_DROPIN))
+        if expected is None:
+            check(not UPGRADE_DROPIN.exists() and not UPGRADE_DROPIN.is_symlink(),'Unreviewed Engine override')
+            return
+        protected(UPGRADE_DROPIN)
+        check(sha(UPGRADE_DROPIN)==expected,'Existing override differs from pinned baseline')
+        check(stat.S_IMODE(UPGRADE_DROPIN.stat().st_mode)==0o644,'Unexpected override mode')
+        lines=UPGRADE_DROPIN.read_text().splitlines()
+        check([x for x in lines if x.startswith('[')]==['[Service]'] and
+              sum(x=='ExecStart=' for x in lines)==1 and
+              sum(x.startswith('ExecStart=') and x!='ExecStart=' for x in lines)==1 and
+              sum(x.startswith('WorkingDirectory=') for x in lines)==1,'Unsupported override layout; preserve without mutation')
+        saved=self.backup/'engine-override.original'
+        with saved.open('xb') as stream:stream.write(UPGRADE_DROPIN.read_bytes())
+        saved.chmod(0o600)
+        check(sha(saved)==expected,'Override backup mismatch')
+
+    def restore_override(self):
+        expected=self.baseline.get('unitFiles',{}).get(str(UPGRADE_DROPIN))
+        if expected is not None:
+            saved=self.backup/'engine-override.original';protected(saved)
+            check(sha(saved)==expected,'Override backup changed; refuse rollback')
+            UPGRADE_DROPIN.write_bytes(saved.read_bytes());UPGRADE_DROPIN.chmod(0o644)
+        elif self.touched and UPGRADE_DROPIN.exists():UPGRADE_DROPIN.unlink()
+        self.touched=False
+
     def stable_components(self,budget=None):
         b=self.baseline
         def output(*args):return self.output(*args,timeout=budget() if budget else 3)
@@ -81,12 +128,15 @@ class EngineUpgrade(Deployment):
 
     def preflight(self):
         protected(self.stage,True);protected(UPGRADE_DROPIN.parent,True)
-        check(not UPGRADE_DROPIN.exists() and not UPGRADE_DROPIN.is_symlink(),'Existing Engine-only override requires review')
+        expected=self.baseline['unitFiles'].get(str(UPGRADE_DROPIN))
+        check(not UPGRADE_DROPIN.is_symlink(),'Override symlink refused')
+        check((UPGRADE_DROPIN.exists() and expected is not None and sha(UPGRADE_DROPIN)==expected) or (not UPGRADE_DROPIN.exists() and expected is None),'Existing override must match pinned baseline')
         check(not self.release.exists() and not self.backup.exists(),'Attempt already exists; do not overwrite evidence')
         for path in [*self.baseline['unitFiles'],*self.baseline['helperFiles']]:protected(Path(path))
         protected(Path(self.baseline['workingDirectory']),True)
         for name in self.baseline['engineFiles']:protected(Path(self.baseline['workingDirectory'])/name)
         check(self.stable_components(),'Baseline policy/security/units/helper/socket/Monitor changed')
+        check(self.prop('DropInPaths').split()==self.baseline.get('dropInPaths',self.prop('DropInPaths').split()),'Loaded drop-in inventory changed')
         check(self.prop('Environment')==self.baseline['environment'],'Loaded environment changed')
         check(exec_start_configuration(self.prop('ExecStart'))==exec_start_configuration(self.baseline['execStart']),'Loaded executable changed')
         check(self.prop('WorkingDirectory')==self.baseline['workingDirectory'],'Loaded working directory changed')
@@ -94,6 +144,7 @@ class EngineUpgrade(Deployment):
         check('HOSTSGUARDIAN_ACTIVE_VALIDATION=0' in self.prop('Environment').split(),'Baseline must be explicitly OFF')
         self.backup.mkdir(mode=0o700,parents=True);self.backup_created=True;protected(self.backup,True)
         (self.backup/'baseline.json').write_bytes((self.stage/'baseline.json').read_bytes());(self.backup/'baseline.json').chmod(0o600)
+        self.save_override()
         wait_ready(lambda remaining:self.collect(remaining,False),self.backup,'baseline')
 
     def prepare(self):
@@ -111,7 +162,7 @@ class EngineUpgrade(Deployment):
         self.run('systemctl','stop',UNIT)
         # Mark before writing so partial writes/reload/start are rollback-owned.
         self.touched=True
-        UPGRADE_DROPIN.write_text('[Service]\nExecStart=\nExecStart='+str(self.release/'engine/HostsGuardian.DnsEngine')+'\nWorkingDirectory='+str(self.release/'engine')+'\nEnvironment=HOSTSGUARDIAN_ACTIVE_VALIDATION=0\nEnvironment=HOSTSGUARDIAN_ACTIVE_VALIDATION_DEVICE_IDS=\nEnvironment=HOSTSGUARDIAN_ACTIVE_VALIDATION_SECONDS=\n')
+        UPGRADE_DROPIN.write_bytes(self.override_content())
         UPGRADE_DROPIN.chmod(0o644)
         self.run('systemctl','daemon-reload');self.run('systemctl','start',UNIT)
         wait_ready(lambda remaining:self.collect(remaining,True),self.backup,'candidate')
@@ -126,12 +177,22 @@ class EngineUpgrade(Deployment):
 
     def rollback(self):
         check(self.old_engine_unchanged(),'Original protected Engine altered; refuse rollback')
+        expected=self.baseline.get('unitFiles',{}).get(str(UPGRADE_DROPIN))
+        if expected is not None:
+            protected(self.backup/'engine-override.original')
+            check(sha(self.backup/'engine-override.original')==expected,'Override backup changed; refuse rollback before stopping Engine')
         self.run('systemctl','stop',UNIT)
-        if self.touched and UPGRADE_DROPIN.exists():UPGRADE_DROPIN.unlink()
+        self.restore_override()
         self.run('systemctl','daemon-reload');self.run('systemctl','start',UNIT)
-        wait_ready(lambda remaining:self.collect(remaining,False),self.backup,'rollback')
+        # A manual retry after failed automatic readiness must retain the first
+        # exclusive-create evidence rather than fail on its existing log file.
+        evidence=self.backup
+        if (evidence/'rollback-readiness.jsonl').exists():
+            evidence=self.backup/('rollback-retry-'+str(time.time_ns()))
+            evidence.mkdir(mode=0o700)
+        wait_ready(lambda remaining:self.collect(remaining,False),evidence,'rollback')
         check(self.stable_components(),'Rollback preservation failed')
-        (self.backup/'rollback-result.json').write_text(json.dumps(dict(status='ROLLBACK_VERIFIED',activeValidationEnabled=False,policyPreserved=True))+'\n')
+        (self.backup/'rollback-result.json').write_text(json.dumps(dict(status='ROLLBACK_VERIFIED',activeValidationEnabled=False,policyPreserved=True,readinessDirectory=str(evidence)))+'\n')
 
 
 def main():
@@ -156,8 +217,9 @@ def main():
     if args.rollback:
         protected(operation.backup/'baseline.json');check(sha(operation.backup/'baseline.json')==args.baseline_sha256,'Saved baseline mismatch')
         if UPGRADE_DROPIN.exists():
-            protected(UPGRADE_DROPIN);check(UPGRADE_DROPIN.read_text().splitlines()[2]=='ExecStart='+str(operation.release/'engine/HostsGuardian.DnsEngine'),'Override does not belong to attempt')
-            operation.touched=True
+            protected(UPGRADE_DROPIN)
+            check(UPGRADE_DROPIN.read_bytes()==operation.override_content() or sha(UPGRADE_DROPIN)==baseline['unitFiles'].get(str(UPGRADE_DROPIN)),'Override does not belong to attempt or baseline')
+            operation.touched=UPGRADE_DROPIN.read_bytes()==operation.override_content()
         else:
             loaded=exec_start_configuration(operation.prop('ExecStart'))[0]
             check(loaded in (baseline['oldExecutable'],str(operation.release/'engine/HostsGuardian.DnsEngine')),'Unexpected loaded executable; manual review required')
