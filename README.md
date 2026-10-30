@@ -6,7 +6,7 @@ A C#/.NET DNS policy project with a Windows WPF Control Center, Linux DNS Engine
 
 > **Pre-1.0 development candidate, based on v0.4.0.** Historical global DNS Block/Restore evidence is recorded below. Current source has local regression coverage, not new production acceptance. Reliable device-specific enforcement and complete LAN coverage remain unproven.
 
-Publication preparation: **28 October 2026**. This working-tree candidate has no new commit, tag, binary release or deployment. [Verification and version provenance](docs/publication-verification-2026-10-28.md) separates source tests from historical runtime evidence.
+Publication-preparation baseline: **28 October 2026**. [Verification and version provenance](docs/publication-verification-2026-10-28.md) separates source tests from historical runtime evidence. The October 30 documentation checkpoint below records later read-only observations; it does not establish source-to-deployed-binary equivalence or create a binary release or deployment.
 
 ## Project overview and architecture
 
@@ -76,6 +76,18 @@ The previous documentation records the following controlled Windows-to-Linux Eng
 The user also reported successful browser blocking on a Lenovo laptop and mobile through Domains. These are human observations, not captured per-device acceptance. Revision increments change serialized policy hashes; restoration preserves original policy content apart from expected revision metadata.
 
 This proves global filtering for requests reaching the Engine. It does **not** prove Devices-tab enforcement, reliable automatic identity, whole-LAN coverage, DoH resistance or Monitor GUI rendering.
+
+## Verified DNS Policy Recovery — October 30, 2026
+
+HostsGuardian observed DNS activity associated with a registered Samsung Smart TV. While the global `youtube.com` restriction was active, eight TV-associated blocking decisions were recorded in a ten-minute window. The user reported a YouTube application network error while Netflix remained operational.
+
+The WPF Control Center recorded successful policy-delivery confirmation. At **16:31:12 Europe/Budapest**, the Engine accepted and persisted policy revision **63 → 64**. Engine audit evidence and full-policy hash comparison established that the **only policy change was removal of the global `youtube.com` restriction**. The user subsequently reported restored YouTube functionality. A later ten-minute TV-associated sample recorded **112 allowed and zero blocked requests**. The Engine process and instance remained unchanged throughout the investigated incident.
+
+- **CONFIRMED:** revision 63 → 64, successful persistent commit, removal of the global restriction, the WPF confirmation event, and TV-associated DNS blocking decisions.
+- **STRONGLY SUPPORTED:** the relationship between policy removal and YouTube recovery, and effective global DNS filtering behavior in this incident.
+- **INCONCLUSIVE:** the exact DNS request/response responsible for the original failure, per-device policy enforcement, why the Samsung Galaxy S22 Ultra remained unaffected, and the exact historical production deployment time.
+
+This is **not full per-device enforcement acceptance**. Gate 3 passed its isolated criteria with human HU/EN evaluation still open; **Gate 4 remains NO-GO**. The repository source baseline is not proven identical to the deployed binary. See the [dated technical checkpoint](docs/checkpoints/2026-10-30-tv-dns-policy-recovery.md) for the timeline, production fingerprints, evidence limits and private-report provenance.
 
 ## Installation, configuration, running and tests
 
