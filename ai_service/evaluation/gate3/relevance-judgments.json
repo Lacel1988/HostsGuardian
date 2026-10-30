@@ -1,0 +1,14 @@
+{
+  "description": "Előre rögzített forrásszintű relevanciaítéletek a teljes meglévő értékelés kilenc tudáskérdéséhez. A policy-concepts.md hiánya a régi korpuszban tartalmi hiány, nem rangsorolási hiba.",
+  "judgments": {
+    "Explain hybrid RAG and RRF": ["retrieval.md"],
+    "Mi az RRF?": ["retrieval.md"],
+    "Explain DNS policy in simple language": ["policy-concepts.md"],
+    "Magyarázd el a DNS szabályzatot egyszerűen": ["policy-concepts.md"],
+    "Explain IPv6 device binding limitations in detail": ["ipv6.md", "identity.md"],
+    "Why is YouTube not blocked on my TV?": ["bypass.md", "identity.md"],
+    "Miért nem blokkol a DNS a tévén?": ["bypass.md", "identity.md"],
+    "Why is device-level enforcement failing despite policy revision synchronization?": ["identity.md", "revision.md", "ipv6.md"],
+    "Miért hibás a DNS policy revision és binding? Részletesen": ["identity.md", "revision.md", "ipv6.md"]
+  }
+}

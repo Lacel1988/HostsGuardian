@@ -1,0 +1,104 @@
+{
+  "schema_version": 1,
+  "namespace": "gate2-evaluation",
+  "chunk_size": 900,
+  "overlap": 120,
+  "sources": [
+    {
+      "path": "architecture.md",
+      "sha256": "8aa0a993410fe4df27c74e501672e9b0040254513b842f68e38e2f54405a2292",
+      "title": "Process isolation",
+      "category": "architecture",
+      "timestamp": "2026-10-30T00:00:00Z",
+      "approved": true
+    },
+    {
+      "path": "safe-mode.md",
+      "sha256": "9afab8b316fcf34d6924fab9fc1181b9718e98c8a2ef68f4d0d80bc51b9c2a76",
+      "title": "Emergency Safe Mode",
+      "category": "policy",
+      "timestamp": "2026-10-30T00:00:00Z",
+      "approved": true
+    },
+    {
+      "path": "revision.md",
+      "sha256": "6f1f33e4fa662a82de72ff40e8f03ec56250a84cbbbc3faefe22b47569f7b80b",
+      "title": "Policy revision readback",
+      "category": "policy",
+      "timestamp": "2026-10-30T00:00:00Z",
+      "approved": true
+    },
+    {
+      "path": "identity.md",
+      "sha256": "59f933dcd3c702f1cd0d8439153d880da6a19ece7a3d033d8971e990554d3f87",
+      "title": "Device identity freshness",
+      "category": "identity",
+      "timestamp": "2026-10-30T00:00:00Z",
+      "approved": true
+    },
+    {
+      "path": "ipv6.md",
+      "sha256": "f3074499b420a66581427a2fe4b6c20c93241eb206e195c19ea4bbe618be2dda",
+      "title": "IPv6 enforcement limits",
+      "category": "identity",
+      "timestamp": "2026-10-30T00:00:00Z",
+      "approved": true
+    },
+    {
+      "path": "bypass.md",
+      "sha256": "c99f01002374301f6f085fe66c5e30a865712ea7feed5b8d21fcfa79d2fc638e",
+      "title": "Resolver bypass coverage",
+      "category": "coverage",
+      "timestamp": "2026-10-30T00:00:00Z",
+      "approved": true
+    },
+    {
+      "path": "activity.md",
+      "sha256": "477848741ef3d123a798f21a5f129d4588a0a5f49ad7c2e98eeb1b3d4845d0cb",
+      "title": "Activity retention and loss",
+      "category": "diagnostics",
+      "timestamp": "2026-10-30T00:00:00Z",
+      "approved": true
+    },
+    {
+      "path": "security.md",
+      "sha256": "e435fcaf90bc3b1a3e385e88ba96adcec7234ebd10aa7f848571ab162e37ba2d",
+      "title": "Management trust",
+      "category": "security",
+      "timestamp": "2026-10-30T00:00:00Z",
+      "approved": true
+    },
+    {
+      "path": "startup.md",
+      "sha256": "47987495117b818e1c9e0dccb4b77c36027d53e256c540126f30a968d9e05217",
+      "title": "Optional model readiness",
+      "category": "architecture",
+      "timestamp": "2026-10-30T00:00:00Z",
+      "approved": true
+    },
+    {
+      "path": "upstream.md",
+      "sha256": "ba780a325f36461856174bd2d7fc845554baf4ca7ba54c1d9d76f138529ca973",
+      "title": "Upstream forwarding failures",
+      "category": "diagnostics",
+      "timestamp": "2026-10-30T00:00:00Z",
+      "approved": true
+    },
+    {
+      "path": "retrieval.md",
+      "sha256": "86ff91d3feba4d6db622264387d3e0e8c40b388a30f119870abbcef09ae2fe7e",
+      "title": "Hybrid retrieval fusion",
+      "category": "retrieval",
+      "timestamp": "2026-10-30T00:00:00Z",
+      "approved": true
+    },
+    {
+      "path": "persistence.md",
+      "sha256": "0485e3ccc226e2be847dff61765912c7ecafe78b545c0eaefd00a26c31a044ec",
+      "title": "Atomic index replacement",
+      "category": "retrieval",
+      "timestamp": "2026-10-30T00:00:00Z",
+      "approved": true
+    }
+  ]
+}

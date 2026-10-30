@@ -1,0 +1,120 @@
+{
+  "description": "Synthetic public-safe design reference; not production observations. One source-level relevance judgment per positive query. Thresholds fixed before first real evaluation.",
+  "top_k": 3,
+  "positive": [
+    {
+      "query": "Which component keeps answering DNS if the AI model crashes?",
+      "relevant": [
+        "architecture.md"
+      ]
+    },
+    {
+      "query": "Does emergency safe mode erase committed rules?",
+      "relevant": [
+        "safe-mode.md"
+      ]
+    },
+    {
+      "query": "How can stale concurrent policy writers be rejected?",
+      "relevant": [
+        "revision.md"
+      ]
+    },
+    {
+      "query": "Why are equal domain counts insufficient to confirm synchronization?",
+      "relevant": [
+        "revision.md"
+      ]
+    },
+    {
+      "query": "Does a saved friendly name prove who owns an address now?",
+      "relevant": [
+        "identity.md"
+      ]
+    },
+    {
+      "query": "What happens when device binding evidence becomes stale?",
+      "relevant": [
+        "identity.md"
+      ]
+    },
+    {
+      "query": "Do dual stack listeners guarantee IPv6 device enforcement?",
+      "relevant": [
+        "ipv6.md"
+      ]
+    },
+    {
+      "query": "How can encrypted resolvers bypass DNS protection?",
+      "relevant": [
+        "bypass.md"
+      ]
+    },
+    {
+      "query": "Do healthy listeners prove complete client traffic coverage?",
+      "relevant": [
+        "bypass.md"
+      ]
+    },
+    {
+      "query": "What do queue drops and expired activity records mean?",
+      "relevant": [
+        "activity.md"
+      ]
+    },
+    {
+      "query": "Does a socket write prove the application is blocked?",
+      "relevant": [
+        "activity.md"
+      ]
+    },
+    {
+      "query": "What prevents trusting an impersonated management server?",
+      "relevant": [
+        "security.md"
+      ]
+    },
+    {
+      "query": "Can the analyst start without a running local inference runtime?",
+      "relevant": [
+        "startup.md"
+      ]
+    },
+    {
+      "query": "How should unreachable upstream forwarding terminate?",
+      "relevant": [
+        "upstream.md"
+      ]
+    },
+    {
+      "query": "How are keyword and embedding rankings combined?",
+      "relevant": [
+        "retrieval.md"
+      ]
+    },
+    {
+      "query": "What happens to the previous index when a rebuild fails?",
+      "relevant": [
+        "persistence.md"
+      ]
+    }
+  ],
+  "unknown": [
+    "sourdough fermentation temperature",
+    "violin concerto composers",
+    "orbital mechanics perihelion",
+    "orchid propagation humidity"
+  ],
+  "thresholds": {
+    "lexical_recall_at_3": 0.75,
+    "lexical_mrr_at_3": 0.65,
+    "semantic_recall_at_3": 0.85,
+    "semantic_mrr_at_3": 0.75,
+    "hybrid_recall_at_3": 0.85,
+    "hybrid_mrr_at_3": 0.75,
+    "unknown_empty_rate": 0.75,
+    "warm_p95_ms": 1000,
+    "index_seconds": 30,
+    "peak_tree_rss_mib": 1024
+  }
+}
