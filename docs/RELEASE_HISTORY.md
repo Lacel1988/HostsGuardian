@@ -14,8 +14,12 @@ Historical acceptance remains qualified by [Known Limitations](KNOWN_LIMITATIONS
 
 The authenticated archive was imported into a separate master-based worktree. Approved synthetic-name cleanup and test source-layout corrections are explicitly recorded; they do not change deployed binaries. Bilingual READMEs and the current baseline documents replace older milestone claims as the project's entry points.
 
-New isolated results and the initial source-layout failure are in [Validation](VALIDATION.md). The next baseline is the reviewed PR head commit, after separate master-merge approval. The original release identifiers remain intact.
+New isolated results and the initial source-layout failure are in [Validation](VALIDATION.md). The next baseline is the verified master head after the explicitly approved normal fast-forward. The original release identifiers remain intact.
 
 ## Earlier repository history
 
-Root-level projects and older milestone documents predate the RC.2 snapshot and remain marked historical. The divergent AI development branch is not merged. A personal test-display label remains in older public Git ancestry, disclosed in [Provenance](RELEASE_PROVENANCE.md); no history rewrite or force push has occurred. No old tag is relabeled as RC.2.
+Root-level project directories and older milestone documents predate the RC.2 snapshot and remain marked historical. The divergent AI development branch is not merged. A personal test-display label remains in older public Git ancestry, disclosed in [Provenance](RELEASE_PROVENANCE.md); no history rewrite or force push has occurred. No old tag is relabeled as RC.2.
+
+## Approved master integration
+
+The user subsequently approved full master integration. The official root solution was updated to reference only RC.2 projects; its predecessor was preserved under `legacy/` with location-only path adjustments. No historical project source was deleted. Fresh build/regression, privacy, source identity and remote-rule checks gate a normal fast-forward from the existing master baseline; no forced update or branch-protection bypass is permitted. PR creation had been denied by the integration API, so the explicitly authorized Git CLI path is used when master has no active protection rules.

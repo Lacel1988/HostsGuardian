@@ -30,3 +30,7 @@ New tests do not establish full LAN coverage, native DPI/multi-monitor acceptanc
 ## Archive formatting
 
 Git whitespace review reports existing blank-at-EOF/trailing-space lines in imported archive members. Their provenance hashes confirm these are inherited formatting, not new semantic edits. They are retained rather than introducing an unrelated formatting rewrite. This does not turn whitespace review into a clean PASS; executable build/security/regression gates are reported separately.
+
+## Final master-integration verification
+
+The official root solution now selects only RC.2 projects. The full Windows solution build is rechecked, together with fresh Windows/native-Linux Engine regressions, pinned HTTPS/RBAC/Block List checks, synthetic migration checks, and actual Windows WPF/restart tests. Source inputs retain the same derived hashes; raw evidence is private. Remote branch protection and active rules are checked before a normal fast-forward; no forced update or protection bypass is allowed.

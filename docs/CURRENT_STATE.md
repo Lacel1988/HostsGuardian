@@ -2,7 +2,7 @@
 
 ## Status and authority
 
-**Production: COMMITTED / PARTIAL GO.** This release/sync branch proposes a cleaned, tested source baseline for master; merging requires separate approval. It does not replace production binaries. The authenticated RC.2 archive/manifests, preserved operational audits and finalization receipt establish release provenance. Environment-specific evidence remains private.
+**Production: COMMITTED / PARTIAL GO.** Master integration is explicitly approved after fresh verification gates; the official development baseline is the cleaned, tested RC.2 derivative. It does not replace production binaries. The authenticated RC.2 archive/manifests, preserved operational audits and finalization receipt establish release provenance. Environment-specific evidence remains private.
 
 | Area | Implemented | Evidence and remaining boundary |
 | --- | --- | --- |
@@ -16,7 +16,7 @@
 
 ## Source and publication baseline
 
-Use `rc2/source`, not the historical root solution. The source archive was verified, selected members imported byte-exactly, then explicitly approved privacy-only fixture naming and test-layout corrections applied. Original hashes and all deltas are in [Provenance](RELEASE_PROVENANCE.md). No application dependency or policy-priority change was introduced.
+Use the root `HostsGuardian.sln`, which references only `rc2/` projects. The official Engine project is `rc2/source/HostsGuardian.DnsEngine/HostsGuardian.DnsEngine.csproj`; the sole current WPF project is `rc2/source/HostsGuardian.Wpf/HostsGuardian.DesignPrototype.csproj`. The old solution is preserved under `legacy/`, and old project directories are explicitly historical. The source archive was verified, selected members imported byte-exactly, then explicitly approved privacy-only fixture naming and test-layout corrections applied. Original hashes and all deltas are in [Provenance](RELEASE_PROVENANCE.md). No application dependency or policy-priority change was introduced.
 
 The original AI branch and all 69 uncommitted entries were preserved. Its newer-looking files are not presumed to be RC.2 and are not merged. Historical root projects remain explicit legacy material, including two static WPF source checks; the actual RC.2 WPF is covered separately by executable tests.
 
@@ -28,4 +28,4 @@ The current tip has neutral synthetic fixture names. A personal test-display lab
 
 ## Next Development Baseline
 
-Start from the reviewed PR head commit on `release/sync-v2.3.1-rc.2` after explicit master-merge approval. Resolve its real Git SHA from the PR/ref; the short source-content prefix is not a commit. Pin the derived source-tree SHA-256 in `rc2/PROVENANCE.json`, retain original RC.2 identities, and carry forward COMMITTED / PARTIAL GO qualifications, device/role/monitoring/analyst gaps and historical privacy residue. The separate AI branch requires independent review. Service-Aware DNS Policy and AiSeNa remain roadmap work.
+Start from the verified GitHub `master` head after the authorized fast-forward integration. Resolve and pin its real Git SHA from the remote ref; the short source-content prefix is not a commit. Pin the derived source-tree SHA-256 in `rc2/PROVENANCE.json`, retain original RC.2 identities, and carry forward COMMITTED / PARTIAL GO qualifications, device/role/monitoring/analyst gaps and historical privacy residue. The separate AI branch requires independent review. Service-Aware DNS Policy and AiSeNa remain roadmap work.

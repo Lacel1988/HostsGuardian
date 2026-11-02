@@ -32,3 +32,5 @@ Systemd unit/drop-in ownership, effective ExecStart, service User/Group access a
 ## Source entry points
 
 Use the RC.2 projects listed in the root [README](../README.md). The import has a local `Directory.Build.props` boundary so older root version defaults are not inherited accidentally. Archived source bytes are tracked in the import manifest; the layout has now passed the builds and checks listed in [Validation](VALIDATION.md). This is buildability evidence, not a claim of bit-for-bit shipped binary reproduction.
+
+The root `HostsGuardian.sln` is the official solution and includes only RC.2 projects. The preserved `legacy/HostsGuardian.PreRC2.sln` and root-level directories marked `README.LEGACY.md` are historical, not equal active implementations. The existing test-only historical WPF source checks retain their documented dependency without making that GUI a current build target.

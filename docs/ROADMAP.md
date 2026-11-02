@@ -4,7 +4,7 @@ This page describes future work, not completed RC.2 functionality. Current imple
 
 ## Release foundation
 
-Review the cleaned, tested consolidation PR and pin its real Git commit after explicit master-merge approval. Preserve original provenance and the historical privacy-residue disclosure. Complete separately controlled role and device-enforcement acceptance before broadening claims.
+Pin the verified master commit after the approved consolidation fast-forward. Preserve original provenance and the historical privacy-residue disclosure. Complete separately controlled role and device-enforcement acceptance before broadening claims.
 
 ## Service-Aware DNS Policy
 

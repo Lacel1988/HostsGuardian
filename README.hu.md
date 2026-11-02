@@ -4,7 +4,7 @@
 
 A HostsGuardian DNS-szabálykezelő rendszer, önálló Linux DNS Engine-nel és Windows WPF Control Centerrel. A jogosult felhasználók domainblokkolást kezelhetnek úgy, hogy a mentett beállítás, a mért DNS-hatás és az alkalmazás működése külön értelmezhető marad.
 
-**Production státusz: COMMITTED / PARTIAL GO.** Ez az ág az igazolt RC.2 forráscsomagból származó, felülvizsgálatra előkészített master-alapállapot. Nem telepít új kiadást, és nem jelent teljes production acceptance-et.
+**Production státusz: COMMITTED / PARTIAL GO.** A master fejlesztési alapja az igazolt RC.2 forráscsomagból származik. Nem telepít új kiadást, és nem jelent teljes production acceptance-et.
 
 ## Kiindulópontok
 
@@ -34,11 +34,14 @@ Az Engine hajtja végre az engedélyezett szabályokat. A WPF visszaolvasott ál
 
 ## Forrásstruktúra és build
 
-Az aktuális alapállapot a `rc2/source`; az izolált tesztek a `rc2/tests` és `rc2/migration-checks` könyvtárban vannak. A gyökérben megőrzött régi projektek és a `HostsGuardian.sln` **nem az RC.2 build belépési pontjai**. A külön AI-fejlesztési ág nincs automatikusan beolvasztva.
+Az aktuális alapállapot a `rc2/source`; az izolált tesztek a `rc2/tests` és `rc2/migration-checks` könyvtárban vannak. A gyökér `HostsGuardian.sln` az **RC.2 hivatalos solutionje**, kizárólag RC.2 projektekkel és egyetlen aktuális WPF-fel. A régi gyökérprojekt-könyvtárak történeti forrásként, `README.LEGACY.md` jelöléssel maradnak meg; a régi solution a `legacy/HostsGuardian.PreRC2.sln` helyre került. A külön AI-fejlesztési ág nincs automatikusan beolvasztva.
 
 .NET 8 vagy kompatibilis SDK szükséges. A WPF-hez Windows desktop célzási és futtatási támogatás kell. A projektfájlokban rögzített csomagokat kell visszaállítani; a konszolidáció nem vezetett be új alkalmazásfüggőséget.
 
 ```sh
+# Teljes hivatalos solution Windows alatt:
+dotnet build HostsGuardian.sln -c Release
+# Linux alatt is támogatott Engine-build:
 dotnet build rc2/source/HostsGuardian.DnsEngine/HostsGuardian.DnsEngine.csproj -c Release
 dotnet build rc2/source/HostsGuardian.Wpf/HostsGuardian.DesignPrototype.csproj -c Release
 dotnet run --project rc2/source/HostsGuardian.RegressionTests/HostsGuardian.RegressionTests.csproj -c Release

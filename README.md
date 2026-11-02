@@ -4,7 +4,7 @@
 
 HostsGuardian is a DNS policy system with an independent Linux DNS Engine and a Windows WPF Control Center. It helps authorized users manage domain blocking while keeping configuration, measured DNS effects and application behavior separate.
 
-**Production status: COMMITTED / PARTIAL GO.** This branch proposes a reviewed master baseline derived from the verified RC.2 source archive. It does not deploy a new release or claim complete production acceptance.
+**Production status: COMMITTED / PARTIAL GO.** The master development baseline is derived from the verified RC.2 source archive. It does not deploy a new release or claim complete production acceptance.
 
 ## Start here
 
@@ -32,11 +32,14 @@ The Engine executes authorized rules. WPF presents readback and user controls. L
 
 ## Source layout and build
 
-The current baseline is `rc2/source`; isolated suites are `rc2/tests` and `rc2/migration-checks`. Root-level application projects and `HostsGuardian.sln` are retained historical material, **not RC.2 build entry points**. The separate AI development branch is not merged.
+The current baseline is `rc2/source`; isolated suites are `rc2/tests` and `rc2/migration-checks`. The root `HostsGuardian.sln` is the **official RC.2 solution**, containing only RC.2 projects and one current WPF. Older root-level project directories are retained historical source, explicitly marked `README.LEGACY.md`; their solution is preserved as `legacy/HostsGuardian.PreRC2.sln`. The separate AI development branch is not merged.
 
 Use .NET 8 or a compatible SDK. WPF requires Windows desktop targeting/runtime support. Restore the package references pinned in the projects; no new application dependency was introduced by consolidation.
 
 ```sh
+# Full official solution on Windows:
+dotnet build HostsGuardian.sln -c Release
+# Engine-only build also supported on Linux:
 dotnet build rc2/source/HostsGuardian.DnsEngine/HostsGuardian.DnsEngine.csproj -c Release
 dotnet build rc2/source/HostsGuardian.Wpf/HostsGuardian.DesignPrototype.csproj -c Release
 dotnet run --project rc2/source/HostsGuardian.RegressionTests/HostsGuardian.RegressionTests.csproj -c Release
