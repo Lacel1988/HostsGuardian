@@ -1,3 +1,5 @@
+> Historical pre-RC.2 material. Statements below describe their original milestone, not current release acceptance. Start at [Current State](CURRENT_STATE.md) for the RC.2 baseline.
+
 # Phase 5C: bounded UDP work and upstream reliability
 
 ## Ownership and admission

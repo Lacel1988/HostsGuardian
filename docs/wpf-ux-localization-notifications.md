@@ -1,3 +1,5 @@
+> Historical pre-RC.2 material. Statements below describe their original milestone, not current release acceptance. Start at [Current State](CURRENT_STATE.md) for the RC.2 baseline.
+
 # WPF UX, localization and notification foundation
 
 The Windows control center runs as the invoking user. The retired HOSTS

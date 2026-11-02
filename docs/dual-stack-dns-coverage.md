@@ -1,3 +1,5 @@
+> Historical pre-RC.2 material. Statements below describe their original milestone, not current release acceptance. Start at [Current State](CURRENT_STATE.md) for the RC.2 baseline.
+
 # Dual-stack DNS and coverage acceptance
 
 The Engine uses one exclusive dual-mode UDP socket and one exclusive dual-mode TCP socket. Both accept IPv4 and IPv6 through the same request processor, admission limits, policy, Safe Mode and persistence. IPv4-mapped peers are normalized to IPv4 before identity attribution. IPv6 source addresses remain evidence, never permanent DeviceIds.

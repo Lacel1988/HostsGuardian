@@ -1,3 +1,5 @@
+> Historical pre-RC.2 material. Statements below describe their original milestone, not current release acceptance. Start at [Current State](CURRENT_STATE.md) for the RC.2 baseline.
+
 # Reliability & Enforcement Foundation — 2026-10-13
 
 Ez helyi, integrált fejlesztési jelölt. Nem produkciós acceptance és nem teljes

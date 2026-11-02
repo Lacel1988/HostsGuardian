@@ -1,3 +1,5 @@
+> Historical pre-RC.2 material. Statements below describe their original milestone, not current release acceptance. Start at [Current State](CURRENT_STATE.md) for the RC.2 baseline.
+
 # Representative real-device E2E plan — prepared, NOT started
 
 Phase 5E-8 whole-LAN/router/DHCP acceptance remains PAUSED. Use Lenovo, one phone,

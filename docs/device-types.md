@@ -1,3 +1,7 @@
+> Historical pre-RC.2 material. Statements below describe their original milestone, not current release acceptance. Start at [Current State](CURRENT_STATE.md) for the RC.2 baseline.
+
+> Historical pre-RC.2 material. Statements below describe their original milestone, not current release acceptance. Start at [Current State](CURRENT_STATE.md) for the RC.2 baseline.
+
 # Device type presentation and ownership
 
 User-confirmed type is WPF-authored control-plane metadata, delivered only through explicit authenticated policy delivery. Engine forwards the accepted metadata without classifying devices. Monitor consumes it read-only. A friendly name, observed hostname, stable DeviceId and device type remain distinct.

@@ -1,3 +1,5 @@
+> Historical pre-RC.2 material. Statements below describe their original milestone, not current release acceptance. Start at [Current State](CURRENT_STATE.md) for the RC.2 baseline.
+
 # Layered policy and product insight development candidate
 
 This is a pre-1.0 source development candidate based on the accepted v0.3.0 product

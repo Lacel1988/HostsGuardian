@@ -1,0 +1,2 @@
+# Preserve archived source bytes and explicit derivative hashes across Git checkouts.
+* -text whitespace=cr-at-eol

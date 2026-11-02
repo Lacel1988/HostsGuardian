@@ -1,3 +1,5 @@
+> Historical pre-RC.2 material. Statements below describe their original milestone, not current release acceptance. Start at [Current State](CURRENT_STATE.md) for the RC.2 baseline.
+
 # Real-LAN candidate acceptance extensions
 
 This source candidate extends a80da0f with native Windows notifications and read-only device-aware Linux diagnostics. Production acceptance is distinct from source regression evidence. Historical acceptance plan; see [v0.4.0](checkpoint-v0.4.0.md) for current release status.

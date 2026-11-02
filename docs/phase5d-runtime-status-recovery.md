@@ -1,3 +1,5 @@
+> Historical pre-RC.2 material. Statements below describe their original milestone, not current release acceptance. Start at [Current State](CURRENT_STATE.md) for the RC.2 baseline.
+
 # Phase 5D — runtime, status, recovery and failure hardening
 
 This is the source-level Phase 5D milestone. Phase 5E Linux/LAN deployment verification has **not** begun. The starting checkpoint was `db761c97f6db24935f468ce9eda020e2d26ca319`; no history changes, staging, commit or push form part of this phase.

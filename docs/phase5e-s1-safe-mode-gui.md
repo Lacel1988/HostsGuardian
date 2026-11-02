@@ -1,3 +1,5 @@
+> Historical pre-RC.2 material. Statements below describe their original milestone, not current release acceptance. Start at [Current State](CURRENT_STATE.md) for the RC.2 baseline.
+
 # Phase 5E source gate S1: Safe Mode GUI/Core completion
 
 S1 is a source-level prerequisite for deployment acceptance. It does not complete Phase 5E or demonstrate real Linux/LAN readiness. The historical [Phase 5D baseline](phase5d-runtime-status-recovery.md) remains 141 groups; S1 adds 27 focused groups for **168/168 passing**. Complete rebuild: **0 errors**, the same **6 CA1416 + 2 NU1701 warnings**, no new warnings.

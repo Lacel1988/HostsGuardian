@@ -1,95 +1,71 @@
-# HostsGuardian
+# HostsGuardian — V2.3.1 RC.2
 
-**[English](README.md) | [Magyar](README.hu.md)**
+**[English](README.md) | Magyar**
 
-C#/.NET DNS-policy projekt Windows WPF Control Centerrel, Linux DNS Engine-nel és Linux diagnosztikai Monitorral.
+A HostsGuardian DNS-szabálykezelő rendszer, önálló Linux DNS Engine-nel és Windows WPF Control Centerrel. A jogosult felhasználók domainblokkolást kezelhetnek úgy, hogy a mentett beállítás, a mért DNS-hatás és az alkalmazás működése külön értelmezhető marad.
 
-> **Pre-1.0 fejlesztői jelölt, v0.4.0 alapokon.** A korábbi globális DNS Block/Restore bizonyítékát lent ismertetjük. A jelenlegi forrásnak helyi regressziós lefedettsége van; új éles elfogadási vizsgálat nem történt. A megbízható eszközspecifikus védelem és teljes LAN-lefedettség nincs igazolva.
+**Production státusz: COMMITTED / PARTIAL GO.** Ez az ág az igazolt RC.2 forráscsomagból származó, felülvizsgálatra előkészített master-alapállapot. Nem telepít új kiadást, és nem jelent teljes production acceptance-et.
 
-Publikálás előkészítése: **2026. október 28.** A munkafa nem új commit, tag, bináris kiadás vagy telepítés. A [verifikációs jelentés](docs/publication-verification-2026-10-28.md) külön kezeli a forrásteszteket, a verzióazonosságot és a korábbi működési bizonyítékot.
+## Kiindulópontok
 
-## Cél és architektúra
+- [Aktuális állapot és a következő fejlesztés alapja](docs/CURRENT_STATE.md)
+- [Architektúra és konfiguráció](docs/ARCHITECTURE.md)
+- [Ismert korlátok](docs/KNOWN_LIMITATIONS.md)
+- [Fejlesztési tervek](docs/ROADMAP.md)
+- [Kiadástörténet](docs/RELEASE_HISTORY.md)
+- [Friss ellenőrzések](docs/VALIDATION.md) · [Forráseredet és adatvédelmi vizsgálat](docs/RELEASE_PROVENANCE.md)
 
-**Az Engine végrehajt. A Monitor megfigyel. A WPF dönt.** Regisztráció, jelenlét, igazolt identitás, policy-küldés, DNS-válasz és alkalmazásblokkolás külön állapot.
+A részletes műszaki dokumentáció angol nyelvű; az aktuális állapot elsődleges leírása a CURRENT_STATE.md.
 
-A WPF kezeli a regisztrációt, felhasználói nevet/típust és döntéseket; hitelesített HTTPS-en kapcsolódik az Engine-hez. A Monitor identitás/policy tekintetében csak olvas. A NetworkValidator korlátozott belső helper, nem negyedik vezérlőkomponens. DNS nem halad át WPF-en; az Engine életciklusát systemd kezeli.
+## Megvalósított képességek
 
-**Az Engine DNS-szerver, nem minden kliens kötelező gatewaye.** Beállított DNS nem bizonyít tényleges DNS-útvonalat. A szűrés nem garantálja meglévő kapcsolat megszakítását, és nem zárja ki az alternatív resolvert, titkosított DNS-t vagy cache-t. Az architektúra diagramja az angol README-ben található.
+- Linux UDP/TCP DNS-kiszolgálás, meglévő globális és eszközszintű szabálykiértékelés, tartós tárolás és audit.
+- 4-es policy-séma: a listában megőrzött domain és a tényleges tiltás külön állapot.
+- Engine-alapú Domain Block List: hatókörválasztás, keresés, hozzáadás, ki- és bekapcsolás a sor törlése nélkül, külön törlés. Az eszköznézet a globálisan örökölt tiltást is jelzi.
+- HTTPS management API, Engine-oldali Argon2id hitelesítés, lejáró munkamenetek és Admin/Operator/Observer jogosultságellenőrzés.
+- WPF-belépés, a meglévő pajzs/lakat animáció, Dashboard és domainkezelés.
+- Revízióhoz kötött írás és visszaolvasás, diagnosztikai és monitoring-adatnézetek.
 
-## Képességek
+A globális tiltás és visszaállítás éles bizonyítékokkal rendelkezik. Az eszközszintű szabályok és szerepkörök megvalósultak, de a szelektív eszközszintű végrehajtás és az éles Operator/Observer munkamenetek külön nyitott acceptance-feladatok. Az elemzői API-szerződések nem bizonyítanak teljesen telepített és elfogadott AI-szolgáltatást.
 
-| Képesség | Állapot |
-|---|---|
-| WPF indulás, Domains/Devices, EN/HU | Korábbi csomag emberi ellenőrzése; a jelenlegi WPF izolált regressziói sikeresek. |
-| Globális WPF Block → valódi sinkhole → Restore | VERIFIED: 2026. október 13. |
-| IPv4/IPv6 UDP/TCP, upstream | IMPLEMENTED, korábbi deployment/readiness; nem teljes LAN. |
-| Registry, név/típus, device policy | IMPLEMENTED; megbízható éles szelektív enforcement PARTIAL / UNVERIFIED. |
-| DeviceId, passzív evidence, TTL/konfliktus | IMPLEMENTED; freshness/receiver KNOWN ISSUES. |
-| Revision/CAS, Safe Mode, persistence | IMPLEMENTED, regresszió és korábbi runtime-bizonyíték. |
-| Csoport/profil/schedule/service catalog | IMPLEMENTED szerződés/evaluator; teljes valódi eszközteszt UNVERIFIED. |
-| Notification/audit/log | IMPLEMENTED / PARTIAL; rekord nem bizonyít natív kézbesítést. |
-| Monitor blokkolási adatcsatorna | VERIFIED; GUI-esemény UNVERIFIED. |
-| Receiver recovery és korlátozott frissítés | A jelölt része generáció-, timeout- és megszakítási regressziókkal; éles igazolásra vár. |
-| Korrelált DNS-diagnosztika | 512 várakozó esemény, 2048 döntés, 15 perc monoton megőrzés és veszteségszámlálók; helyi socket-write nem kliensoldali kézbesítés. |
-| Pontos eszközszabály-visszaállítás és kapcsolati állapot | ABSENT/Inherit/Allow/Block megőrzése és WPF mocktesztek; az elküldés külön művelet. |
-| Védett frissítés és helyreállítás | Forrás és izolált tesztek megtartva; root/PID1, hard-kill és reboot éles igazolása még szükséges. |
-| Teljes LAN / Network Enforcement | BLOCKED: coverage és kötelező chokepoint nem igazolt. |
+## Architektúra
 
-Részletes forrás/teszt és megőrzött koncepció: [Architecture and roadmap](docs/ARCHITECTURE_AND_ROADMAP.md).
+Az Engine hajtja végre az engedélyezett szabályokat. A WPF visszaolvasott állapotot és felhasználói vezérlést biztosít. A Linux monitoring megfigyel. Az AI elemez és javasol. A kliensek DNS-forgalma közvetlenül az Engine-hez jut; a WPF nem DNS-átjáró. A független szolgáltatás életciklusát a systemd kezeli. Részletek: [Architecture](docs/ARCHITECTURE.md).
 
-## Technológia és algoritmusok
+## Forrásstruktúra és build
 
-.NET 8/C#, WPF, saját DNS/HTTPS Engine; Python GTK/PyGObject/Cairo; systemd service/socket; konzolos regresszió és Python unittest.
+Az aktuális alapállapot a `rc2/source`; az izolált tesztek a `rc2/tests` és `rc2/migration-checks` könyvtárban vannak. A gyökérben megőrzött régi projektek és a `HostsGuardian.sln` **nem az RC.2 build belépési pontjai**. A külön AI-fejlesztési ág nincs automatikusan beolvasztva.
 
-Immutable policy snapshot/CAS: `EnginePolicyState.cs`, `PolicyApplicationService.cs`. Determinisztikus precedence: Device override → aktív profil/schedule → csoport → globális, azonos szinten Block győz (`PolicyDecision.cs`). Normalizált pontos és ponttal elválasztott aldomainillesztés (`DevicePolicyEvaluator.cs`). Korlátozott konkurencia/timeout (`DnsProxyServer.cs`, `DnsRequestProcessor.cs`). Evidence-alapú identitás, történelmi IP önmagában nem elég (`AddressBindingStore.cs`).
+.NET 8 vagy kompatibilis SDK szükséges. A WPF-hez Windows desktop célzási és futtatási támogatás kell. A projektfájlokban rögzített csomagokat kell visszaállítani; a konszolidáció nem vezetett be új alkalmazásfüggőséget.
 
-Adaptív Simple/Indexed, tanuló service discovery, SQLite/WAL nincs megvalósítottként állítva. A fix, változtathatatlan cím/scope index és a korlátozott diagnosztikai sor a jelenlegi forrás része.
-
-## Korábbi valódi DNS-bizonyíték
-
-A korábbi dokumentáció az alábbi kontrollált Windows–Linux Engine tesztet rögzíti **2026. október 13-áról**, `example.com` lekérdezéssel. A publikálási ellenőrzés során ezt nem ismételtük meg; a teszt nem igazolja a jelenlegi jelölt éles telepítettségét:
-
-| Fázis | Válasz |
-|---|---|
-| Baseline | NOERROR: `104.20.23.154`, `172.66.147.243`. |
-| WPF Domains Block, revision 46 | NOERROR: `0.0.0.0`, TTL 60. |
-| Monitor adat | GlobalBlock, blokkolt kérés, DeviceId Unknown. |
-| WPF Restore, revision 47 | Normál válasz és eredeti policy-szemantika visszaállt. |
-
-A felhasználó Lenovo és mobil böngészőből is sikeres Domains-blokkolást jelzett; ez emberi megfigyelés, nem rögzített eszközspecifikus acceptance. Revision miatt a fájlhash változhat; Restore az eredeti policy-tartalomra vonatkozik az elvárt revision-metaadat kivételével.
-
-Bizonyított: globális szűrés az Engine-hez érkező kérésre. Nem bizonyított: Devices enforcement, automatikus identitás megbízhatósága, teljes LAN, DoH-ellenállás, Monitor GUI-esemény.
-
-## Telepítés, konfiguráció és tesztek
-
-A történelmi deployment-útmutatókat az adott release-hez ellenőrizni kell. [Monitor útmutató](linux-monitor/README.md). Credential/certificate/gépspecifikus config ne kerüljön Gitbe. WPF: támogatott HTTPS enrollment; draft és explicit delivery külön. A kliensnek ténylegesen ezt a resolvert kell választania; e dokumentáció nem engedélyez hálózati változtatást.
-
-```powershell
-dotnet build HostsGuardian.sln -c Release
-dotnet run --project HostsGuardian.Wpf -c Release
-dotnet run --project HostsGuardian.RegressionTests -c Release
-dotnet run --project HostsGuardian.Wpf.RegressionTests -c Release
+```sh
+dotnet build rc2/source/HostsGuardian.DnsEngine/HostsGuardian.DnsEngine.csproj -c Release
+dotnet build rc2/source/HostsGuardian.Wpf/HostsGuardian.DesignPrototype.csproj -c Release
+dotnet run --project rc2/source/HostsGuardian.RegressionTests/HostsGuardian.RegressionTests.csproj -c Release
+dotnet run --project rc2/tests/IntegrationChecks.csproj -c Release -- ./rc2/test-output/integration
 ```
 
-Windows/.NET 8 WPF szükséges. Python: külön `network-validator`, `linux-monitor`, `development/roadmap` könyvtárban `python3 -B -m unittest discover -v`. GTK-hoz Linux grafikus függőségek szükségesek; skip nem végrehajtott GUI-teszt. Development build nem automatikusan elfogadott release.
+Az Engine buildje és regressziói Windows és natív Linux alatt újonnan lefutottak. Windows alatt a WPF buildje és a tényleges WPF/loopback-HTTPS ellenőrzések is sikeresek. A forrásvizsgáló regressziókat a teljes checkoutból futtasd: két kifejezetten történeti WPF-teszt a megőrzött gyökérfájlokat használja. A kezdeti útvonalhibát és a javítást is a [Validation](docs/VALIDATION.md) dokumentálja.
 
-A friss Windows tesztmátrix, parancsok, kihagyások és verziókorlátok a [verifikációs jelentésben](docs/publication-verification-2026-10-28.md) találhatók. Core/Engine: **332 sikeres csoport**; WPF: **39 PASS üzenet**, 0 kilépési kód. A Python-eredmények külön jelzik a sikeres és kihagyott teszteket. A GTK-kihagyás nem GUI-siker; a régebbi Linux-eredmények történelmi bizonyítékok.
+## Telepítés és konfiguráció alapjai
 
-A recovery szkriptek karbantartott források, nem törlendő lemezképek. Generált privát session, credential, tanúsítvány, buildkimenet és recovery image ne kerüljön Gitbe. A transfer bootstrap alapkönyvtára `/var/tmp/hostsguardian-transfer`; a csomagkészítő explicit `transferDirectory` értéket adhat meg. A bootstrap előállítása nem végez és nem engedélyez telepítést.
+1. Előbb izolált ellenőrzés szükséges. Őrizd meg a korábbi működő Engine-t a hozzá tartozó policy-mentéssel együtt.
+2. Helyben biztosítsd a szolgáltatás tulajdonosát, a privát hitelesítési tárhelyet, management credentialt, TLS-tanúsítványt és privát kulcsot, valamint a policy és monitor útvonalait. Ezeket ne commitold.
+3. Az Engine konfigurációs környezeti változóit az [Architecture](docs/ARCHITECTURE.md) sorolja fel. Csak új telepítéskor inicializáld az első Admint, helyi terminálban, egyedi erős jelszóval. Meglévő userstore-t ne inicializálj újra.
+4. Őrizd meg a systemd védelmeit, és ellenőrizd a tényleges service-felhasználó hozzáférését. A véglegesített telepítés örökölt `Restart=on-failure` szabályt használ; ezt a véglegesítés Engine-újraindítás és policyírás nélkül ellenőrizte.
+5. A WPF meglévő kapcsolódási folyamatában állítsd be a HTTPS-origint, a megbízható tanúsítványt és a védett helyi credentialt. Engine-fiókkal jelentkezz be.
+6. A kliensek DNS-átállítása előtt ellenőrizd az API-visszaolvasást, az UDP/TCP DNS-t és a rollback feltételeit. Ez az ág nem telepít és nem állít routert.
 
-## Biztonság
+A környezetfüggő telepítők, recovery-adatok és credentialek nem részei a publikációnak. A fenti lista előfeltételeket rögzít, nem univerzális, egyparancsos telepítőt.
 
-Hitelesített HTTPS/enrollment, revision/instance CAS, PID1/root socket és peer/élő folyamatellenőrzés. Engine CAP_NET_BIND_SERVICE; csak a korlátozott helper kaphat CAP_NET_RAW-t a service-en keresztül. Passzív MAC nem kriptográfiai identitás; teljes IP/MAC megszemélyesítés nem kizárt.
+## Korlátok és tervek
 
-STALE neighbour nem online bizonyíték. Regisztráció, GUI-kapcsoló, draft és API-siker nem enforcement-bizonyíték.
+A DNS-policy csak az Engine-hez eljutó kérésekre érvényesül. A cache, meglévő kapcsolatok, IPv6 DNS-választás és alternatív DNS/DoH befolyásolhatja az alkalmazások működését. Egyetlen domain nem feltétlenül képvisel egy teljes, többdomaines szolgáltatást. Részletek: [Known Limitations](docs/KNOWN_LIMITATIONS.md).
 
-## Ismert korlátok és prioritások
+**A Service-Aware DNS Policy és az AiSeNa fejlesztési irányok, nem kész production képességek.** Lásd: [Roadmap](docs/ROADMAP.md).
 
-1. P0: DeviceId, kétklienses szelektív Block/Restore, receiver/freshness race és őszinte WPF állapot.
-2. P1: router/gateway, IPv4/IPv6, alternatív DNS/DoH, vendorfüggetlen coverage/chokepoint.
-3. P2: grafikus blokkesemény, korreláció, retention/audit.
-4. P3: hivatalos WPF csomag, reprodukálható manifest, cleanup/retention.
+A tisztított forrás a tesztnevek és a tesztútvonalak kezelése miatt szándékosan eltér a telepített RC.2 snapshotjától. Az eredeti release hash-ek megmaradtak. Egy korábbi személyhez köthető tesztmegjelenítési név továbbra is elérhető a Git-előzményekben; történetátírás nem történt. Lásd: [Provenance](docs/RELEASE_PROVENANCE.md).
 
-IPv6 attribúció, natív notification/schedule acceptance, populated device-policy és generikus éles recovery nincs teljesen igazolva. Természetes forgalom/incidens opportunisztikus bizonyíték. systemd reload és történelmi caveat az aktuális deploymentnél ellenőrzendő; e publikálás runtime-ot nem változtat.
+## Licenc
 
-**Fejlesztés alatt:** korábbi globális DNS-szűrés dokumentálva; megbízható általános eszközenforcement a következő acceptance. Nincs új deployment, tag vagy bináris release. A program a repository MIT licencét használja; a betűkészletek külön [Orbitron](HostsGuardian.Wpf/Assets/Fonts/OFL.txt) és [Exo](HostsGuardian.Wpf/Assets/Fonts/Exo-OFL.txt) értesítéseit megőrizzük.
+Lásd a [LICENSE.txt](LICENSE.txt) fájlt és a projektfájlokban hivatkozott csomagok licenceit.

@@ -1,3 +1,5 @@
+> Historical pre-RC.2 material. Statements below describe their original milestone, not current release acceptance. Start at [Current State](CURRENT_STATE.md) for the RC.2 baseline.
+
 # HostsGuardian visual conventions
 
 The application uses dark surfaces (#050A08 background, #0B1510 panels), readable

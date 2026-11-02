@@ -1,3 +1,5 @@
+> Historical pre-RC.2 material. Statements below describe their original milestone, not current release acceptance. Start at [Current State](CURRENT_STATE.md) for the RC.2 baseline.
+
 # Linux Engine Diagnostics Console V1
 
 > **v0.3.0 checkpoint scope:** the Engine/Monitor diagnostics contracts below are retained. The candidate WPF operational-event polling described below is not integrated into the retained Windows-accepted WPF source. For current acceptance and limitations, see [the checkpoint record](checkpoint-v0.3.0.md).

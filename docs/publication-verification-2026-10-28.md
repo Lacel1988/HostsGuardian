@@ -1,3 +1,5 @@
+> Historical pre-RC.2 material. Statements below describe their original milestone, not current release acceptance. Start at [Current State](CURRENT_STATE.md) for the RC.2 baseline.
+
 # Source publication verification — 28 October 2026
 
 This is a **source candidate**, not a production release or deployment attestation. No commit, push, tag, file deletion, privileged installation, policy write or network configuration change was performed during publication preparation. Tests used an isolated source copy and temporary fixtures.

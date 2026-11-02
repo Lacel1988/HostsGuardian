@@ -18,7 +18,7 @@ internal static class NotificationAcceptanceTests
         var now = new DateTimeOffset(2026, 10, 6, 17, 50, 1, TimeSpan.Zero);
         var device = Guid.NewGuid(); var service = Guid.NewGuid(); var profile = Guid.NewGuid(); var schedule = Guid.NewGuid();
         var rule = new ProgramRule(Guid.NewGuid(), null, service, DeviceDomainRuleState.Allow);
-        var policy = new FullDnsPolicy(3, ["fixture.invalid"], [new(device, "Device", null, "fixture", "explicit") { Metadata = new("Gabó", "", "Laptop", "") }], [])
+        var policy = new FullDnsPolicy(3, ["fixture.invalid"], [new(device, "Device", null, "fixture", "explicit") { Metadata = new("FixtureAlpha", "", "Laptop", "") }], [])
         { Program = new([], [new(service, "Fixture service", "1", ["fixture.invalid"])],
             [new(profile, "Evening", true, false, false, [device], [], [rule])],
             [new(schedule, profile, "Evening", true, "UTC", [DayOfWeek.Tuesday], 17*60, 18*60)]) };
@@ -26,7 +26,7 @@ internal static class NotificationAcceptanceTests
         var status = new DnsServiceStatus { SnapshotUtc = now, InstanceId = "fixture", PolicyRevision = 5, FilteringEnabled = true };
         var bindings = new BindingRead(1, [new("192.0.2.1", "fixture", device, "explicit", now.AddMinutes(-1), now.AddMinutes(20), true)]);
         var warning = ScheduleNotificationFeed.Find(read, bindings, status, status, now).Single();
-        Check(warning.DeviceName == "Gabó" && warning.Minutes == 10 && warning.LocalTime == "18:00" && warning.TransitionUtc == new DateTimeOffset(2026,10,6,18,0,0,TimeSpan.Zero), "Wrong affected identity or transition timing");
+        Check(warning.DeviceName == "FixtureAlpha" && warning.Minutes == 10 && warning.LocalTime == "18:00" && warning.TransitionUtc == new DateTimeOffset(2026,10,6,18,0,0,TimeSpan.Zero), "Wrong affected identity or transition timing");
         Check(ScheduleNotificationFeed.Find(read, bindings, status, status, now.AddSeconds(31)).Count == 0, "Stale status forecast");
         Check(ScheduleNotificationFeed.Find(read, bindings, status, new() { InstanceId="fixture", PolicyRevision=6, FilteringEnabled=true, SnapshotUtc=now }, now).Count == 0, "Mixed revision forecast");
         Check(ScheduleNotificationFeed.Find(read, new(1, []), status, status, now).Count == 0, "Unvalidated device predicted");
@@ -45,7 +45,7 @@ internal static class NotificationAcceptanceTests
         var journal=new NotificationDeliveryJournal(journalPath);
         Check(journal.Reserve(warning.Key,warning.TransitionUtc,now),"First warning suppressed");
         Check(!new NotificationDeliveryJournal(journalPath).Reserve(warning.Key,warning.TransitionUtc,now),"Restart duplicate delivered");
-        Check(!File.ReadAllText(journalPath).Contains("Gabó") && !File.ReadAllText(journalPath).Contains("192.0.2.1"),"Journal identity leak");
+        Check(!File.ReadAllText(journalPath).Contains("FixtureAlpha") && !File.ReadAllText(journalPath).Contains("192.0.2.1"),"Journal identity leak");
         File.WriteAllText(journalPath,"corrupt");
         Check(!new NotificationDeliveryJournal(journalPath).Reserve("new",now.AddMinutes(1),now),"Corrupt journal reset caused spam");
         Console.WriteLine("PASS bounded durable notification suppression across restart, privacy and fail-quiet corrupt-state handling");

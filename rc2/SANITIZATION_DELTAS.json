@@ -1,0 +1,57 @@
+{
+  "scope": "Approved RC.2 derivative: synthetic fixture names and test source-layout portability; no production deployment or policy logic change.",
+  "changes": [
+    {
+      "path": "rc2/source/HostsGuardian.Wpf/ExperienceModel.cs",
+      "beforeSha256": "b09740738368135e64d8cc2b01956e1884d4f70069babfa072face0a4f43a11b",
+      "afterSha256": "97d49c34591f2aed5c42423deff06137cef6f065cdd2f4bd439c0c7fa18e47e4",
+      "replacementCount": 2,
+      "change": "Personal demo/test display name replaced with unique synthetic FixtureAlpha label; matching assertions and search values updated together."
+    },
+    {
+      "path": "rc2/source/HostsGuardian.Wpf/RefinementUI.cs",
+      "beforeSha256": "ac234c1fe539f0c98dc9e7e8d778d090546046b799466cd367e5e13ff2603ddc",
+      "afterSha256": "86c8365479b123c0827ef2d8a308bb88f0c1d339be1ca02a974c6969ac462ce8",
+      "replacementCount": 2,
+      "change": "Personal demo/test display name replaced with unique synthetic FixtureAlpha label; matching assertions and search values updated together."
+    },
+    {
+      "path": "rc2/source/HostsGuardian.Wpf/RefinementVerification.cs",
+      "beforeSha256": "d5290f4a367ef9f4d458c4fd991fa54035a632c6fc5da7db3961a9d3c497141b",
+      "afterSha256": "de0b018c052137a29b51f546ec2e2449e43edfc0b33e97c77b13fa33ab63f9e4",
+      "replacementCount": 2,
+      "change": "Personal demo/test display name replaced with unique synthetic FixtureAlpha label; matching assertions and search values updated together."
+    },
+    {
+      "path": "HostsGuardian.Wpf.RegressionTests/NotificationAcceptanceTests.cs",
+      "beforeSha256": "d1429bb4ae94c56089a10afaf5e3cdb5398d06275602f51fd531df60cc286791",
+      "afterSha256": "a3e2510e79994ec856b788d44d559e93b7948dfcb6fc4fcd2c4345bb489d41b5",
+      "replacementCount": 3,
+      "change": "Personal demo/test display name replaced with unique synthetic FixtureAlpha label; matching assertions and search values updated together."
+    },
+    {
+      "path": "rc2/source/HostsGuardian.RegressionTests/ArchitectureTests.cs",
+      "beforeSha256": "8eae2e6ee677397f7a64a01790528f0fab0a59fb0268f52694a5814a84015d19",
+      "afterSha256": "1620bd87d7ad8f98de238e9e40b88b9f70e60740867c376ad82ea39f3e619211",
+      "change": "Test source-path resolution made explicit; existing assertions preserved; legacy WPF checks labelled separately."
+    },
+    {
+      "path": "rc2/source/HostsGuardian.RegressionTests/Phase5DTests.cs",
+      "beforeSha256": "e31f45493afa69ff6975d22e2e6a9ce4bc5a26ee84d7f9d90d73813d4f564bb0",
+      "afterSha256": "b53f1db4dff5e83c067d9c9731f220cf35ea8d089c3e85f8765ad7553c58731d",
+      "change": "Test source-path resolution made explicit; existing assertions preserved; legacy WPF checks labelled separately."
+    },
+    {
+      "path": "rc2/source/HostsGuardian.RegressionTests/Phase5ES1Tests.cs",
+      "beforeSha256": "9b5f07698256b7122f43bb73cfd9eb2ef0fb4ce2e5bd215facc3c766363da884",
+      "afterSha256": "fbff22c78622db2d44139813b595addda10eba672897a22524033fc9828ecf85",
+      "change": "Test source-path resolution made explicit; existing assertions preserved; legacy WPF checks labelled separately."
+    },
+    {
+      "path": "rc2/source/HostsGuardian.RegressionTests/SourceLayout.cs",
+      "beforeSha256": null,
+      "afterSha256": "9022912210d30bc122459b21c1c4e0804f8a3849e2fa5ea7594cee93f7608e8e",
+      "change": "New test-only source-layout resolver; no production code or assertions removed."
+    }
+  ]
+}

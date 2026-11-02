@@ -1,0 +1,21 @@
+{
+  "releaseVersion": "2.3.1-rc.2",
+  "productionStatus": "COMMITTED / PARTIAL GO",
+  "sourceContentSha256BeforeStamp": "0b501e3e0439441001601fc0b1278c1e8d3b04f84d97eadaf250760f452796e6",
+  "sourceArchiveSha256": "fd7f9dab593c814e4147a4b4762e43a6eb2546571aaaf019be23b906bb79336b",
+  "linuxPackageSha256": "a42fa4f374c0d126d92a63b53877ffd778144eb8f292dff323f382a0f878b0ba",
+  "windowsPackageSha256": "4781ee7e0d284da33cd3a8c0d3f24c0f196ca1914b44d099bbf73decd5ccee62",
+  "baseGitCommit": "6038615e2cfc121dfd9c3e8682c049304c7be25f",
+  "branch": "release/sync-v2.3.1-rc.2",
+  "remotePublished": "See Git remote ref/PR; this document does not assert merge",
+  "sourceFilesImported": 201,
+  "sourceFilesExcluded": 7,
+  "importedBytesMatchArchive": true,
+  "newBuildTests": "PASS: see docs/VALIDATION.md",
+  "publicationDecision": "Eligible for reviewed PR; historical personal test-display label retained in ancestry and disclosed",
+  "derivedSourceTreeSha256": "e88144185997c1ca79f82c4826683d84ffaa7a26d7c734ab0cf69cdefb1393ae",
+  "derivedSourceTreeAlgorithm": "SHA256 of UTF-8 sorted relativePath + NUL + lowercase file SHA256 + LF; source/, tests/, migration-checks/ excluding bin/obj/__pycache__, plus Directory.Build.props",
+  "derivedSourceFiles": 203,
+  "gitCommitIdentity": "The containing Git commit; resolve with git rev-parse HEAD or the PR head SHA",
+  "sourceDiffersFromOriginalRelease": true
+}

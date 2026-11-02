@@ -1,3 +1,5 @@
+> Historical pre-RC.2 material. Statements below describe their original milestone, not current release acceptance. Start at [Current State](CURRENT_STATE.md) for the RC.2 baseline.
+
 # One product, separate responsibilities
 
 > **v0.3.0 status update:** accepted Unified Monitor source/package is 0.3.0+unified1; real installed GUI Stop/Start/Restart and Windows WPF runtime acceptance subsequently passed within documented coverage. Earlier pending/source-milestone statements below are historical. Automatic candidate WPF operational-event polling is not in the retained Windows variant. See [the checkpoint record](checkpoint-v0.3.0.md).

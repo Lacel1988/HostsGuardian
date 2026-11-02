@@ -1,0 +1,170 @@
+path,comparisonStatus,releaseAction,legacyAction
+HostsGuardian.Core/HostsGuardian.Core.csproj,different,import unchanged under rc2/source; exclude IDE profiles,"retain master file as historical, not RC.2 build input"
+HostsGuardian.Core/Models/FullDnsPolicy.cs,different,import unchanged under rc2/source; exclude IDE profiles,"retain master file as historical, not RC.2 build input"
+HostsGuardian.Core/Services/DnsEngineService.cs,different,import unchanged under rc2/source; exclude IDE profiles,"retain master file as historical, not RC.2 build input"
+HostsGuardian.Core/Services/DomainBlockList.cs,release-only,import unchanged under rc2/source; exclude IDE profiles,leave only in original AI working tree; not imported
+HostsGuardian.Core/Services/PolicyCanonicalization.cs,different,import unchanged under rc2/source; exclude IDE profiles,"retain master file as historical, not RC.2 build input"
+HostsGuardian.Core/Services/PolicyEvidenceBudget.cs,different,import unchanged under rc2/source; exclude IDE profiles,"retain master file as historical, not RC.2 build input"
+HostsGuardian.DnsEngine/ApiServer.Analyst.cs,release-only,import unchanged under rc2/source; exclude IDE profiles,leave only in original AI working tree; not imported
+HostsGuardian.DnsEngine/ApiServer.Rbac.cs,release-only,import unchanged under rc2/source; exclude IDE profiles,leave only in original AI working tree; not imported
+HostsGuardian.DnsEngine/ApiServer.cs,different,import unchanged under rc2/source; exclude IDE profiles,"retain master file as historical, not RC.2 build input"
+HostsGuardian.DnsEngine/DevicePolicyEvaluator.cs,different,import unchanged under rc2/source; exclude IDE profiles,"retain master file as historical, not RC.2 build input"
+HostsGuardian.DnsEngine/HostsGuardian.DnsEngine.csproj,different,import unchanged under rc2/source; exclude IDE profiles,"retain master file as historical, not RC.2 build input"
+HostsGuardian.DnsEngine/PolicyApplicationService.cs,different,import unchanged under rc2/source; exclude IDE profiles,"retain master file as historical, not RC.2 build input"
+HostsGuardian.DnsEngine/PolicyPersistence.cs,different,import unchanged under rc2/source; exclude IDE profiles,"retain master file as historical, not RC.2 build input"
+HostsGuardian.DnsEngine/Program.cs,different,import unchanged under rc2/source; exclude IDE profiles,"retain master file as historical, not RC.2 build input"
+HostsGuardian.DnsEngine/UserDirectory.cs,release-only,import unchanged under rc2/source; exclude IDE profiles,leave only in original AI working tree; not imported
+HostsGuardian.RegressionTests/IntegratedPolicyTests.cs,different,import unchanged under rc2/source; exclude IDE profiles,"retain master file as historical, not RC.2 build input"
+HostsGuardian.RegressionTests/Program.cs,different,import unchanged under rc2/source; exclude IDE profiles,"retain master file as historical, not RC.2 build input"
+HostsGuardian.Wpf/AiAnalystWindow.xaml,repository-only,not in release snapshot,leave only in original AI working tree; not imported
+HostsGuardian.Wpf/AiAnalystWindow.xaml.cs,repository-only,not in release snapshot,leave only in original AI working tree; not imported
+HostsGuardian.Wpf/App.xaml,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+HostsGuardian.Wpf/App.xaml.cs,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+HostsGuardian.Wpf/AssemblyInfo.cs,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+HostsGuardian.Wpf/Assets/Fonts/Exo-Black.ttf,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+HostsGuardian.Wpf/Assets/Fonts/Exo-BlackItalic.ttf,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+HostsGuardian.Wpf/Assets/Fonts/Exo-Bold.ttf,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+HostsGuardian.Wpf/Assets/Fonts/Exo-BoldItalic.ttf,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+HostsGuardian.Wpf/Assets/Fonts/Exo-ExtraBold.ttf,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+HostsGuardian.Wpf/Assets/Fonts/Exo-ExtraBoldItalic.ttf,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+HostsGuardian.Wpf/Assets/Fonts/Exo-ExtraLight.ttf,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+HostsGuardian.Wpf/Assets/Fonts/Exo-ExtraLightItalic.ttf,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+HostsGuardian.Wpf/Assets/Fonts/Exo-Italic-VariableFont_wght.ttf,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+HostsGuardian.Wpf/Assets/Fonts/Exo-Italic.ttf,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+HostsGuardian.Wpf/Assets/Fonts/Exo-Light.ttf,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+HostsGuardian.Wpf/Assets/Fonts/Exo-LightItalic.ttf,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+HostsGuardian.Wpf/Assets/Fonts/Exo-Medium.ttf,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+HostsGuardian.Wpf/Assets/Fonts/Exo-MediumItalic.ttf,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+HostsGuardian.Wpf/Assets/Fonts/Exo-OFL.txt,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+HostsGuardian.Wpf/Assets/Fonts/Exo-Regular.ttf,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+HostsGuardian.Wpf/Assets/Fonts/Exo-SemiBold.ttf,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+HostsGuardian.Wpf/Assets/Fonts/Exo-SemiBoldItalic.ttf,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+HostsGuardian.Wpf/Assets/Fonts/Exo-Thin.ttf,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+HostsGuardian.Wpf/Assets/Fonts/Exo-ThinItalic.ttf,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+HostsGuardian.Wpf/Assets/Fonts/Exo-VariableFont_wght.ttf,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+HostsGuardian.Wpf/Assets/Fonts/OFL.txt,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+HostsGuardian.Wpf/Assets/Fonts/Orbitron-Black.ttf,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+HostsGuardian.Wpf/Assets/Fonts/Orbitron-Bold.ttf,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+HostsGuardian.Wpf/Assets/Fonts/Orbitron-ExtraBold.ttf,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+HostsGuardian.Wpf/Assets/Fonts/Orbitron-Medium.ttf,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+HostsGuardian.Wpf/Assets/Fonts/Orbitron-Regular.ttf,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+HostsGuardian.Wpf/Assets/Fonts/Orbitron-SemiBold.ttf,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+HostsGuardian.Wpf/Assets/Fonts/Orbitron-VariableFont_wght.ttf,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+HostsGuardian.Wpf/Assets/Fonts/README.txt,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+HostsGuardian.Wpf/BlockListUiChecks.cs,release-only,import unchanged under rc2/source; exclude IDE profiles,leave only in original AI working tree; not imported
+HostsGuardian.Wpf/Converters/BoolToVisibilityConverter.cs,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+HostsGuardian.Wpf/CoreVisual.cs,release-only,import unchanged under rc2/source; exclude IDE profiles,leave only in original AI working tree; not imported
+HostsGuardian.Wpf/DomainBlockListPage.cs,release-only,import unchanged under rc2/source; exclude IDE profiles,leave only in original AI working tree; not imported
+HostsGuardian.Wpf/EngineConnectionWindow.cs,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+HostsGuardian.Wpf/EngineCredential.cs,release-only,import unchanged under rc2/source; exclude IDE profiles,leave only in original AI working tree; not imported
+HostsGuardian.Wpf/EngineProjection.cs,release-only,import unchanged under rc2/source; exclude IDE profiles,leave only in original AI working tree; not imported
+HostsGuardian.Wpf/EngineSecurity.cs,release-only,import unchanged under rc2/source; exclude IDE profiles,leave only in original AI working tree; not imported
+HostsGuardian.Wpf/EngineUI.cs,release-only,import unchanged under rc2/source; exclude IDE profiles,leave only in original AI working tree; not imported
+HostsGuardian.Wpf/EngineUserSession.cs,release-only,import unchanged under rc2/source; exclude IDE profiles,leave only in original AI working tree; not imported
+HostsGuardian.Wpf/Experience.cs,release-only,import unchanged under rc2/source; exclude IDE profiles,leave only in original AI working tree; not imported
+HostsGuardian.Wpf/ExperienceModel.cs,release-only,import unchanged under rc2/source; exclude IDE profiles,leave only in original AI working tree; not imported
+HostsGuardian.Wpf/ExperienceRecording.cs,release-only,import unchanged under rc2/source; exclude IDE profiles,leave only in original AI working tree; not imported
+HostsGuardian.Wpf/ExperienceVerification.cs,release-only,import unchanged under rc2/source; exclude IDE profiles,leave only in original AI working tree; not imported
+HostsGuardian.Wpf/Gate6Evidence.cs,release-only,import unchanged under rc2/source; exclude IDE profiles,leave only in original AI working tree; not imported
+HostsGuardian.Wpf/Gate6Verification.cs,release-only,import unchanged under rc2/source; exclude IDE profiles,leave only in original AI working tree; not imported
+HostsGuardian.Wpf/HostsGuardian.DesignPrototype.csproj,release-only,import unchanged under rc2/source; exclude IDE profiles,leave only in original AI working tree; not imported
+HostsGuardian.Wpf/HostsGuardian.Wpf.csproj,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+HostsGuardian.Wpf/HostsGuardian.Wpf.csproj.user,repository-only,not in release snapshot,leave only in original AI working tree; not imported
+HostsGuardian.Wpf/Infrastructure/ObservableObject.cs,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+HostsGuardian.Wpf/Infrastructure/RelayCommand.cs,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+HostsGuardian.Wpf/IntegratedChecks.cs,release-only,import unchanged under rc2/source; exclude IDE profiles,leave only in original AI working tree; not imported
+HostsGuardian.Wpf/IntegratedManagement.cs,release-only,import unchanged under rc2/source; exclude IDE profiles,leave only in original AI working tree; not imported
+HostsGuardian.Wpf/Localization/LocalizationService.cs,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+HostsGuardian.Wpf/Localization/OverrideLabelConverter.cs,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+HostsGuardian.Wpf/Localization/en.json,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+HostsGuardian.Wpf/Localization/hu.json,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+HostsGuardian.Wpf/LoginChecks.cs,release-only,import unchanged under rc2/source; exclude IDE profiles,leave only in original AI working tree; not imported
+HostsGuardian.Wpf/LoginUat.cs,release-only,import unchanged under rc2/source; exclude IDE profiles,leave only in original AI working tree; not imported
+HostsGuardian.Wpf/MainWindow.xaml,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+HostsGuardian.Wpf/MainWindow.xaml.cs,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+HostsGuardian.Wpf/MockHttpsEngine.cs,release-only,import unchanged under rc2/source; exclude IDE profiles,leave only in original AI working tree; not imported
+HostsGuardian.Wpf/Motion.cs,release-only,import unchanged under rc2/source; exclude IDE profiles,leave only in original AI working tree; not imported
+HostsGuardian.Wpf/OperationsWorkspaceWindow.cs,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+HostsGuardian.Wpf/PolicyWorkspaceWindow.cs,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+HostsGuardian.Wpf/Program.cs,release-only,import unchanged under rc2/source; exclude IDE profiles,leave only in original AI working tree; not imported
+HostsGuardian.Wpf/RcVerification.cs,release-only,import unchanged under rc2/source; exclude IDE profiles,leave only in original AI working tree; not imported
+HostsGuardian.Wpf/ReadOnlyAdapter.cs,release-only,import unchanged under rc2/source; exclude IDE profiles,leave only in original AI working tree; not imported
+HostsGuardian.Wpf/RefinementModel.cs,release-only,import unchanged under rc2/source; exclude IDE profiles,leave only in original AI working tree; not imported
+HostsGuardian.Wpf/RefinementReview.cs,release-only,import unchanged under rc2/source; exclude IDE profiles,leave only in original AI working tree; not imported
+HostsGuardian.Wpf/RefinementUI.cs,release-only,import unchanged under rc2/source; exclude IDE profiles,leave only in original AI working tree; not imported
+HostsGuardian.Wpf/RefinementVerification.cs,release-only,import unchanged under rc2/source; exclude IDE profiles,leave only in original AI working tree; not imported
+HostsGuardian.Wpf/ReleaseCandidate.cs,release-only,import unchanged under rc2/source; exclude IDE profiles,leave only in original AI working tree; not imported
+HostsGuardian.Wpf/Review.cs,release-only,import unchanged under rc2/source; exclude IDE profiles,leave only in original AI working tree; not imported
+HostsGuardian.Wpf/RichPages.cs,release-only,import unchanged under rc2/source; exclude IDE profiles,leave only in original AI working tree; not imported
+HostsGuardian.Wpf/Services/ActivityExportService.cs,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+HostsGuardian.Wpf/Services/AiAnalystClient.cs,repository-only,not in release snapshot,leave only in original AI working tree; not imported
+HostsGuardian.Wpf/Services/AiAnalystContracts.cs,repository-only,not in release snapshot,leave only in original AI working tree; not imported
+HostsGuardian.Wpf/Services/AiConnectionSettings.cs,repository-only,not in release snapshot,leave only in original AI working tree; not imported
+HostsGuardian.Wpf/Services/DecisionEvidencePresentation.cs,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+HostsGuardian.Wpf/Services/DialogService.cs,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+HostsGuardian.Wpf/Services/DnsPanelService.cs,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+HostsGuardian.Wpf/Services/DnsStateService.cs,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+HostsGuardian.Wpf/Services/FileDialogService.cs,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+HostsGuardian.Wpf/Services/IDialogService.cs,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+HostsGuardian.Wpf/Services/IFileDialogService.cs,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+HostsGuardian.Wpf/Services/IRouterBlockService.cs,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+HostsGuardian.Wpf/Services/LocalizedDialogs.cs,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+HostsGuardian.Wpf/Services/LocalizedEnumTemplate.cs,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+HostsGuardian.Wpf/Services/NativeNotificationAcceptance.cs,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+HostsGuardian.Wpf/Services/NotificationCenter.cs,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+HostsGuardian.Wpf/Services/NotificationDeliveryJournal.cs,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+HostsGuardian.Wpf/Services/OperationalNotificationObserver.cs,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+HostsGuardian.Wpf/Services/PolicyDraftSession.cs,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+HostsGuardian.Wpf/Services/ProductOperationalFeed.cs,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+HostsGuardian.Wpf/Services/RouterBlockService.cs,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+HostsGuardian.Wpf/Services/RouterSnapshotService.cs,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+HostsGuardian.Wpf/Services/ScheduleNotificationFeed.cs,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+HostsGuardian.Wpf/Services/UiPreferences.cs,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+HostsGuardian.Wpf/Services/WindowsNotificationSink.cs,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+HostsGuardian.Wpf/Styles.xaml,release-only,import unchanged under rc2/source; exclude IDE profiles,leave only in original AI working tree; not imported
+HostsGuardian.Wpf/Styles/MatrixStyles.xaml,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+HostsGuardian.Wpf/ThemeDark.xaml,release-only,import unchanged under rc2/source; exclude IDE profiles,leave only in original AI working tree; not imported
+HostsGuardian.Wpf/ThemeLight.xaml,release-only,import unchanged under rc2/source; exclude IDE profiles,leave only in original AI working tree; not imported
+HostsGuardian.Wpf/UatChecks.cs,release-only,import unchanged under rc2/source; exclude IDE profiles,leave only in original AI working tree; not imported
+HostsGuardian.Wpf/UatUI.cs,release-only,import unchanged under rc2/source; exclude IDE profiles,leave only in original AI working tree; not imported
+HostsGuardian.Wpf/ViewModels/ActivityEvent.cs,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+HostsGuardian.Wpf/ViewModels/ActivityItemVm.cs,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+HostsGuardian.Wpf/ViewModels/AiAnalystViewModel.cs,repository-only,not in release snapshot,leave only in original AI working tree; not imported
+HostsGuardian.Wpf/ViewModels/DeviceDomainRuleVm.cs,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+HostsGuardian.Wpf/ViewModels/DeviceInventoryView.cs,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+HostsGuardian.Wpf/ViewModels/DeviceKind.cs,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+HostsGuardian.Wpf/ViewModels/DeviceVm.cs,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+HostsGuardian.Wpf/ViewModels/MainViewModel.EngineSync.cs,repository-only,not in release snapshot,leave only in original AI working tree; not imported
+HostsGuardian.Wpf/ViewModels/MainViewModel.cs,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+HostsGuardian.Wpf/app.manifest,different,import unchanged under rc2/source; exclude IDE profiles,"retain master file as historical, not RC.2 build input"
+HostsGuardian.Wpf/palette.json,release-only,import unchanged under rc2/source; exclude IDE profiles,leave only in original AI working tree; not imported
+linux-monitor/README.md,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+linux-monitor/build_monitor_package.py,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+linux-monitor/debian/changelog,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+linux-monitor/debian/control,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+linux-monitor/debian/copyright,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+linux-monitor/debian/install,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+linux-monitor/debian/rules,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+linux-monitor/debian/source/format,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+linux-monitor/device_diagnostics.py,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+linux-monitor/device_diagnostics_ui.py,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+linux-monitor/device_types.py,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+linux-monitor/diagnostics.py,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+linux-monitor/monitor.py,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+linux-monitor/monitor_core.py,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+linux-monitor/operations.py,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+linux-monitor/packaging/49-hostsguardian-monitor.rules,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+linux-monitor/packaging/hostsguardian-monitor,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+linux-monitor/packaging/hostsguardian-monitor.desktop,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+linux-monitor/packaging/monitor-status.conf,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+linux-monitor/test_coverage.py,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+linux-monitor/test_device_diagnostics.py,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+linux-monitor/test_device_types.py,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+linux-monitor/test_diagnostics.py,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+linux-monitor/test_gui.py,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+linux-monitor/test_monitor.py,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+linux-monitor/test_operations.py,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+linux-monitor/test_packaging.py,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+linux-monitor/test_topology.py,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+linux-monitor/topology.py,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"
+linux-monitor/topology_ui.py,repository-only,not in release snapshot,"retain master file as historical, not RC.2 build input"

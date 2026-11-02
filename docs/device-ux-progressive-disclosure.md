@@ -1,3 +1,5 @@
+> Historical pre-RC.2 material. Statements below describe their original milestone, not current release acceptance. Start at [Current State](CURRENT_STATE.md) for the RC.2 baseline.
+
 # Roadmap #4 — Device UX / Progressive Disclosure
 
 Automated candidate; human acceptance pending. This is targeted polish, not a replacement architecture.

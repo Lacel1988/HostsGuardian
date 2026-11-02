@@ -1,3 +1,5 @@
+> Historical pre-RC.2 material. Statements below describe their original milestone, not current release acceptance. Start at [Current State](CURRENT_STATE.md) for the RC.2 baseline.
+
 # FOUNDATION BLOCKER — Validated Device Identity → DNS Enforcement Binding
 
 Discovered during Roadmap #4 acceptance. Automated candidate; production/real-device acceptance pending. Roadmap #4 stays pending; client-side device search is deferred until this blocker is accepted. Roadmap #5 has not started.

@@ -1,3 +1,5 @@
+> Historical pre-RC.2 material. Statements below describe their original milestone, not current release acceptance. Start at [Current State](CURRENT_STATE.md) for the RC.2 baseline.
+
 # POST-5E-7 integrated milestone: source architecture and gates
 
 Phase 5E-8 whole-LAN/router acceptance remains PAUSED. No commits/pushes or real

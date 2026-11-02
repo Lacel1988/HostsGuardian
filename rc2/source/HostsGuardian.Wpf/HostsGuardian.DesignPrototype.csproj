@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType><TargetFramework>net8.0-windows</TargetFramework><UseWPF>true</UseWPF><ApplicationManifest>app.manifest</ApplicationManifest>
+    <Nullable>enable</Nullable><ImplicitUsings>enable</ImplicitUsings><StartupObject>DesignPrototype.Program</StartupObject>
+    <AssemblyName>HostsGuardian.V231</AssemblyName><InformationalVersion>2.3.1-rc.2+blocklist.0b501e3e0439</InformationalVersion><Version>2.3.1</Version>
+  </PropertyGroup>
+<ItemGroup><PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" /></ItemGroup><ItemGroup><ProjectReference Include="../HostsGuardian.Core/HostsGuardian.Core.csproj" /></ItemGroup></Project>
+
+

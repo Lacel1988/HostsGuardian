@@ -1,3 +1,7 @@
+> Historical pre-RC.2 material. Statements below describe their original milestone, not current release acceptance. Start at [Current State](CURRENT_STATE.md) for the RC.2 baseline.
+
+> Historical pre-RC.2 material. Statements below describe their original milestone, not current release acceptance. Start at [Current State](CURRENT_STATE.md) for the RC.2 baseline.
+
 # Device identity, Binding V2 and topology source checkpoint
 
 Status: v0.4.0 source release. The Engine/NetworkValidator deployment foundation is accepted; active ARP and broader real-LAN/visual acceptance remain pending. This source release does not deploy or change production.
