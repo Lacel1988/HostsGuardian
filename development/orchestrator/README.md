@@ -1,21 +1,34 @@
 # Development Orchestrator â€” Milestone 1
 
+The new local G1/G2 entry point is `python -m orchestrator.managed`; see
+[G1-G2-GOVERNANCE.md](G1-G2-GOVERNANCE.md) for authorization, enforced boundaries
+and limitations. Historical local DEV/WB write dispatch now requires this managed
+gate. Historical Linux paths remain outside this MVP's protected boundary.
+The Milestone 1 documentation below describes the read-only same-commit recipe.
+
 A standard-library Python 3.10+ CLI for a deterministic, read-only, two-worker
 same-commit verification recipe. This is development tooling, not a HostsGuardian
 product component. `development/orchestrator` keeps it associated with the first
 project while separating reusable code from `hostsguardian.example.json`. It has no .NET,
 GTK, production Engine, service-control or deployment dependency.
 
+**ACCEPTANCE PASS a dokumentált, megbízható folyamaton belüli G1/G2 managed fejlesztési scope-ra.**
+The separately authorized real Windows symlink check returned **SYMLINK_PASS**.
+The earlier suite results and skips remain historical; no full suite was rerun.
+See [G1-G2-VALIDATION.md](G1-G2-VALIDATION.md#targeted-windows-symlink-verification).
+This is not production qualification, full security certification or G3–G6 acceptance.
+
 ## Run
 
+Set `HG_ORCH_EVIDENCE` to an operator-owned absolute directory outside every
+source worktree and the shared Git metadata. Do not publish its contents.
 From this directory, copy `hostsguardian.example.json` to the ignored
 `hostsguardian.local.json` and supply your own repository paths, SSH alias and
 expected commit/branch. Example paths are not a ready-to-run machine configuration:
 
 ```powershell
-python -m compileall -q orchestrator tests
-python -m unittest discover -s tests -v
-python -m orchestrator --config hostsguardian.local.json --artifacts C:/Temp/hostsguardian-orchestrator-evidence
+python -B run-tests.py
+python -B -m orchestrator --config hostsguardian.local.json --artifacts "$env:HG_ORCH_EVIDENCE"
 ```
 
 The configuration explicitly selects the clean authoritative Windows checkout,
@@ -128,7 +141,7 @@ writers. Only this same-commit recipe executes automatically. Large-output
 streaming/backpressure, cross-process ledger locking, approval identity/signing,
 crash resumption and a source-modifying recipe are deferred.
 
-Reasoning remains on Lenovo in the current coding session. Linux is a deterministic
+Reasoning remains in the operator's current development session. Linux is a deterministic
 SSH execution worker, not a model host, and requires no Linux Codex installation.
 There is no remote agent daemon or model-driven shell planning on Linux.
 
