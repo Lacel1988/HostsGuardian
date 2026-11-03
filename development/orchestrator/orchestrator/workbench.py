@@ -10,7 +10,7 @@ from pathlib import Path
 import subprocess
 import threading
 import uuid
-from .development import DevelopmentWindowsWorker
+from .development import DevelopmentWindowsWorker, evidence_directory
 from .ledger import Ledger
 from .model import Task, TaskState, StateMachine, Operation
 from .recipe import ExecutionFailure, run_operation
@@ -19,8 +19,8 @@ from .workers import Router
 
 def snapshot(root):
     def git(*argv):
-        return subprocess.check_output(['git', '--no-optional-locks', *argv], cwd=root).decode('utf-8').strip()
-    paths = subprocess.check_output(['git', 'ls-files', '-z', '--cached', '--others', '--exclude-standard'], cwd=root).decode('utf-8').split('\0')
+        return subprocess.check_output(['git', '--no-optional-locks', *argv], cwd=root, timeout=20).decode('utf-8').strip()
+    paths = subprocess.check_output(['git', '--no-optional-locks', 'ls-files', '-z', '--cached', '--others', '--exclude-standard'], cwd=root, timeout=20).decode('utf-8').split('\0')
     files = {}
     for name in sorted(set(paths) - {''}):
         path = root / name
@@ -45,9 +45,7 @@ def main():
     expected = json.loads(args.snapshot.read_text(encoding='utf-8-sig'))
     if expected['branch'] in {'master', 'main', ''}:
         raise ValueError('An owned development branch is required')
-    if root == args.artifacts.resolve() or root in args.artifacts.resolve().parents:
-        raise ValueError('Evidence must be outside source')
-    run = args.artifacts / (args.ticket + '-' + uuid.uuid4().hex[:8])
+    run = evidence_directory(root, args.artifacts, args.ticket)
     run.mkdir(parents=True)
     def observe(event):
         print(f"{event['task_name']} {event['state'].value} {event['event']} {event['operation']}", flush=True)

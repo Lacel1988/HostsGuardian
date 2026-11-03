@@ -4,12 +4,9 @@ import hashlib
 import json
 import os
 from pathlib import Path, PurePosixPath
-from .model import Task, TaskState, StateMachine, Operation, Outcome, WorkerState
+from .model import Task, TaskState, StateMachine, Operation, Outcome, WorkerState, Result
 from .workers import requires_approval
-
-
-class ExecutionFailure(RuntimeError):
-    pass
+from .decisions import ExecutionFailure, blocked
 
 
 def validate_config(config, artifacts):
@@ -39,29 +36,55 @@ def run_operation(machine, ledger, worker, operation, cancel):
         worker.state = WorkerState.WAITING_FOR_HUMAN
         task.blocker = f'Approval required: {operation.category} / {operation.name}'
         machine.transition(TaskState.WAITING_FOR_HUMAN, task.blocker, worker.identity)
-        return None
+        decision = blocked('APPROVAL_REQUIRED', 'Worker approval gate denied dispatch.', 'recipe.run_operation')
+        ledger.record(task, 'GOVERNANCE_DECISION', decision.reason, worker.identity, decision.to_dict())
+        raise ExecutionFailure(task.blocker, decision)
     ledger.record(task, 'COMMAND_START', operation.name, worker.identity, asdict(operation))
     result = worker.run(operation, cancel,
                         lambda kind, identity, value: ledger.record(task, kind, operation.name, identity, value))
+    if (type(result) is not Result or type(result.outcome) is not Outcome or
+            (result.exit_code is not None and type(result.exit_code) is not int) or not isinstance(result.stdout, str) or
+            not isinstance(result.stderr, str) or
+            (result.outcome == Outcome.SUCCESS and result.exit_code != 0)):
+        decision = blocked('INVALID_WORKER_RESULT', 'Missing, malformed or inconsistent worker result.', 'recipe.run_operation')
+        ledger.record(task, 'GOVERNANCE_DECISION', decision.reason, worker.identity, decision.to_dict())
+        raise ExecutionFailure(decision.reason, decision)
     record = {'worker': worker.identity, 'operation': operation.name, **asdict(result)}
     task.results.append(record)
     ledger.record(task, 'COMMAND_RESULT', operation.name, worker.identity, record)
     if result.outcome != Outcome.SUCCESS:
-        raise ExecutionFailure(f'{worker.identity}: {operation.name}: {result.outcome.value}: {result.reason}')
+        decision = blocked('EXECUTION_FAILED', 'Worker did not return a successful execution result.', 'recipe.run_operation')
+        ledger.record(task, 'GOVERNANCE_DECISION', decision.reason, worker.identity, decision.to_dict())
+        raise ExecutionFailure(f'{worker.identity}: {operation.name}: {result.outcome.value}: {result.reason}', decision)
     return result
 
 
 def guard(machine, ledger, worker, repository, expected, cancel):
+    def fail(code, reason):
+        decision = blocked(code, reason, 'recipe.guard')
+        ledger.record(machine.task, 'GOVERNANCE_DECISION', decision.reason, worker.identity, decision.to_dict())
+        raise ExecutionFailure(reason, decision)
     operation = Operation('repository identity snapshot', ('repository-snapshot',), repository['root'])
     result = run_operation(machine, ledger, worker, operation, cancel)
     try:
-        evidence = json.loads(result.stdout)
+        if type(result) is not Result or result.outcome != Outcome.SUCCESS or result.exit_code != 0 or not isinstance(result.stdout, str):
+            raise ValueError('Missing or invalid snapshot result')
+        def unique(pairs):
+            value = {}
+            for key, item in pairs:
+                if key in value:
+                    raise ValueError('Duplicate snapshot field')
+                value[key] = item
+            return value
+        evidence = json.loads(result.stdout, object_pairs_hook=unique)
         if not isinstance(evidence,dict) or set(evidence) != {'git','root','origin','branch','head','status'} or not all(isinstance(v,str) for v in evidence.values()):
             raise ValueError('Invalid snapshot fields')
     except (json.JSONDecodeError, ValueError) as exc:
-        raise ExecutionFailure('Invalid repository snapshot: '+str(exc)) from exc
+        decision = blocked('INVALID_GUARD_RESULT', 'Repository snapshot response is missing or malformed.', 'recipe.guard')
+        ledger.record(machine.task, 'GOVERNANCE_DECISION', decision.reason, worker.identity, decision.to_dict())
+        raise ExecutionFailure(decision.reason, decision) from exc
     if evidence['git'] != 'true':
-        raise ExecutionFailure('Not a Git repository')
+        fail('NOT_GIT_REPOSITORY', 'Not a Git repository')
     actual_root = evidence['root']
     root = repository['root']
     if repository['platform'] == 'windows':
@@ -69,17 +92,17 @@ def guard(machine, ledger, worker, repository, expected, cancel):
     else:
         same_root = actual_root == root
     if not same_root:
-        raise ExecutionFailure(f'Repository root mismatch: {actual_root}')
+        fail('ROOT_MISMATCH', 'Repository root differs from the configured root')
     if evidence['origin'] != repository['origin']:
-        raise ExecutionFailure('Origin mismatch')
+        fail('ORIGIN_MISMATCH', 'Origin mismatch')
     branch = evidence['branch']
     if branch != repository['branch']:
-        raise ExecutionFailure(f"Branch mismatch: expected {repository['branch']!r}, observed {branch!r}")
+        fail('BRANCH_MISMATCH', 'Branch differs from the configured branch')
     head = evidence['head']
     if head != expected:
-        raise ExecutionFailure(f'Commit mismatch: expected {expected}, observed {head}')
+        fail('HEAD_MISMATCH', 'Commit differs from the configured baseline')
     if evidence['status']:
-        raise ExecutionFailure('Repository is not clean')
+        fail('DIRTY_REPOSITORY', 'Repository is not clean')
     ledger.record(machine.task, 'REPOSITORY_VERIFIED', 'Root/origin/branch/HEAD/clean verified', worker.identity,
                   {'root': root, 'origin': repository['origin'], 'head': head, 'clean': True})
     return head

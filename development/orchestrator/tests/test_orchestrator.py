@@ -113,7 +113,8 @@ class Tests(unittest.TestCase):
         self.running()
         worker = FakeWorker({})
         operation = Operation('service control', ('systemctl', 'stop', 'fixture'), str(self.root), category='service-control')
-        self.assertIsNone(run_operation(self.machine, self.ledger, worker, operation, self.cancel))
+        with self.assertRaises(ExecutionFailure):
+            run_operation(self.machine, self.ledger, worker, operation, self.cancel)
         self.assertEqual(self.task.state, TaskState.WAITING_FOR_HUMAN)
         self.assertEqual(worker.state, WorkerState.WAITING_FOR_HUMAN)
         self.assertEqual(worker.calls, [])

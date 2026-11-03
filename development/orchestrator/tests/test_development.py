@@ -21,7 +21,8 @@ class DevelopmentTests(unittest.TestCase):
     def execute(self, edits):
         manifest = self.root / 'manifest.json'
         manifest.write_text(json.dumps(edits))
-        return self.worker.execute(Operation('edits', ('owned-edits', str(manifest)), str(self.root), category='owned-development'), self.cancel, lambda *_: None)
+        # Internal edit algorithm tests; public dispatch is tested in test_governance.
+        return self.worker._execute_edits(Operation('edits', ('owned-edits', str(manifest)), str(self.root), category='owned-development'), self.cancel, lambda *_: None)
 
     def test_allowlist_requires_exact_owned_directory_and_command(self):
         for argv in [('dotnet', 'run', '--project', 'development/DesktopE2E'), ('dotnet', 'build', 'HostsGuardian.sln')]:
