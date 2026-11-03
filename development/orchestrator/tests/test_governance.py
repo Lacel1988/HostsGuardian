@@ -21,13 +21,31 @@ from orchestrator.model import Operation, Outcome, Result, StateMachine, Task, T
 from orchestrator.recipe import guard, run_operation
 from orchestrator.workbench import snapshot
 from orchestrator.workers import Worker
+from orchestrator.budget import ExecutionBudget
 
 
 class FakeDispatcher(ManagedDevelopmentWorker):
     def __init__(self, profile, authorization, apply=False):
         super().__init__('fake-local', profile, authorization)
+        self.budget = ExecutionBudget(300)
         self.calls = []
         self.apply = apply
+
+    # Existing G1/G2 and G3 unit fixtures mock dispatch, so explicitly mock the
+    # new G4 boundary too. Real G4 tests/acceptance use the actual managed worker.
+    # Guard, budget and original assertions remain active and unchanged.
+    def _capture_revalidation(self, operation):
+        return None
+
+    def _revalidate(self, operation, result):
+        return Decision(Status.PASS, ('G4',), 'POSTCONDITIONS_VERIFIED',
+                        'Isolated G1/G2/G3 unit fixture, not G4 evidence.', 'Fixture only.',
+                        ('test:mock-g4', 'operation-sha256:' + operation_identity(operation),
+                         'before-source-sha256:' + self.authorization.source_identity,
+                         'after-source-sha256:' + self.authorization.source_identity,
+                         'expected-targets-sha256:' + '0' * 64, 'index-sha256:' + '0' * 64),
+                        self.authorization.source_identity, self.profile.version,
+                        managed_boundary='managed-post-execution')
 
     def execute(self, operation, cancel, notify):
         self.calls.append(operation)
@@ -316,7 +334,9 @@ class GovernanceTests(unittest.TestCase):
         profile_file, request_file = self.base / 'profile.json', self.base / 'request.json'
         profile_file.write_text(json.dumps(profile))
         request_file.write_text(json.dumps(asdict(self.operation)))
-        args = ['--profile', str(profile_file), '--request', str(request_file), '--plain']
+        budget_file = self.base / 'budget.json'
+        budget_file.write_text(json.dumps({'total_timeout_seconds': 300}))
+        args = ['--profile', str(profile_file), '--request', str(request_file), '--budget', str(budget_file), '--plain']
         with contextlib.redirect_stdout(io.StringIO()) as output:
             self.assertEqual(main(args + ['--inspect']), 0)
         self.assertFalse(json.loads(output.getvalue())['dispatch'])

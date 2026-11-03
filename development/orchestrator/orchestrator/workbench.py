@@ -10,6 +10,7 @@ from pathlib import Path
 import subprocess
 import threading
 import uuid
+from .budget import bounded_timeout, checkpoint
 from .development import DevelopmentWindowsWorker, evidence_directory
 from .ledger import Ledger
 from .model import Task, TaskState, StateMachine, Operation
@@ -19,14 +20,18 @@ from .workers import Router
 
 def snapshot(root):
     def git(*argv):
-        return subprocess.check_output(['git', '--no-optional-locks', *argv], cwd=root, timeout=20).decode('utf-8').strip()
-    paths = subprocess.check_output(['git', '--no-optional-locks', 'ls-files', '-z', '--cached', '--others', '--exclude-standard'], cwd=root, timeout=20).decode('utf-8').split('\0')
+        result = subprocess.check_output(['git', '--no-optional-locks', *argv], cwd=root, timeout=bounded_timeout(20)).decode('utf-8').strip()
+        checkpoint()
+        return result
+    paths = subprocess.check_output(['git', '--no-optional-locks', 'ls-files', '-z', '--cached', '--others', '--exclude-standard'], cwd=root, timeout=bounded_timeout(20)).decode('utf-8').split('\0')
     files = {}
     for name in sorted(set(paths) - {''}):
+        checkpoint()
         path = root / name
         if root not in path.resolve().parents:
             raise ValueError('Source path escapes owned tree')
         files[name] = hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else None
+        checkpoint()
     return {'root': str(root.resolve()), 'branch': git('branch', '--show-current'),
             'head': git('rev-parse', 'HEAD'), 'origin': git('remote', 'get-url', 'origin'),
             'status': git('status', '--porcelain=v1', '--untracked-files=all'), 'files': files}

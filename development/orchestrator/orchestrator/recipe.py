@@ -7,6 +7,7 @@ from pathlib import Path, PurePosixPath
 from .model import Task, TaskState, StateMachine, Operation, Outcome, WorkerState, Result
 from .workers import requires_approval
 from .decisions import ExecutionFailure, blocked
+from .budget import ExecutionBudget, checkpoint, g3_blocked
 
 
 def validate_config(config, artifacts):
@@ -30,6 +31,24 @@ def validate_config(config, artifacts):
 
 
 def run_operation(machine, ledger, worker, operation, cancel):
+    budget = getattr(worker, 'budget', None)
+    if type(budget) is not ExecutionBudget:
+        return _run_operation(machine, ledger, worker, operation, cancel)
+    budget.cancel = cancel
+    try:
+        with budget.activate():
+            result = _run_operation(machine, ledger, worker, operation, cancel)
+            checkpoint()
+            return result
+    except Exception as exc:
+        decision = (exc.decision if isinstance(exc, ExecutionFailure) and exc.decision is not None else
+                    g3_blocked('G3_EVIDENCE_FAILED', 'Operation or evidence processing failed closed.'))
+        worker.last_decision = decision
+        budget.failure = decision
+        raise ExecutionFailure(decision.reason, decision) from exc
+
+
+def _run_operation(machine, ledger, worker, operation, cancel):
     task = machine.task
     task.steps.append({'worker': worker.identity, **asdict(operation)})
     if worker.approval_required(operation):
@@ -50,6 +69,8 @@ def run_operation(machine, ledger, worker, operation, cancel):
         ledger.record(task, 'GOVERNANCE_DECISION', decision.reason, worker.identity, decision.to_dict())
         raise ExecutionFailure(decision.reason, decision)
     record = {'worker': worker.identity, 'operation': operation.name, **asdict(result)}
+    if getattr(worker, 'evidence_binding', None) is not None:
+        record.update(binding=worker.evidence_binding, attempt=worker.budget.attempts)
     task.results.append(record)
     ledger.record(task, 'COMMAND_RESULT', operation.name, worker.identity, record)
     if result.outcome != Outcome.SUCCESS:

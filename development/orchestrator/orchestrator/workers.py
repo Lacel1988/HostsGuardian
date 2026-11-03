@@ -1,51 +1,85 @@
 """Bounded subprocess execution and configured capability-based workers."""
 from dataclasses import asdict
+from contextvars import ContextVar
+import hashlib
+from pathlib import Path
 import os
 import shlex
 import subprocess
 import time
 import uuid
 import sys
+import errno
+from .budget import active_budget, bounded_timeout, checkpoint
 from .model import Outcome, Result, WorkerState
 from .snapshot import script
+
+# Trusted runner observations, separate from worker stdout/claimed success.
+# Process-local evidence only; this does not authenticate hostile Python code.
+process_receipts = ContextVar('managed_process_receipts', default=None)
 
 
 def run_process(argv, cwd, timeout, cancel, heartbeat=None):
     start = time.monotonic()
+    timeout = bounded_timeout(timeout)
     if cancel.is_set():
         return Result(Outcome.CANCELLED, None, reason='Cancelled before process dispatch')
     try:
+        checkpoint()
         process = subprocess.Popen(argv, cwd=cwd, stdout=subprocess.PIPE,
                                    stderr=subprocess.PIPE, text=True, encoding='utf-8', errors='replace')
     except OSError as exc:
-        return Result(Outcome.FAILED, None, reason=str(exc), elapsed=time.monotonic()-start)
-    outcome = None
-    while True:
-        elapsed = time.monotonic()-start
-        if cancel.is_set():
-            outcome = Outcome.CANCELLED
-        elif elapsed >= timeout:
-            outcome = Outcome.TIMED_OUT
-        if outcome:
-            process.kill()
+        return Result(Outcome.FAILED, None, reason=str(exc), elapsed=time.monotonic()-start,
+                      failure_code='PROCESS_START_TRANSIENT' if exc.errno == errno.EAGAIN else '')
+    try:
+        outcome = None
+        while True:
+            elapsed = time.monotonic()-start
+            if cancel.is_set():
+                outcome = Outcome.CANCELLED
+            elif elapsed >= timeout or (active_budget.get() is not None and active_budget.get().remaining() <= 0):
+                outcome = Outcome.TIMED_OUT
+            if outcome:
+                process.kill()
+                try:
+                    budget = active_budget.get()
+                    stdout, stderr = process.communicate(timeout=max(0, min(2, budget.remaining())) if budget else 2)
+                except subprocess.TimeoutExpired:
+                    # A descendant may retain a pipe; do not wait without a bound.
+                    process.stdout.close()
+                    process.stderr.close()
+                    return Result(outcome, process.returncode, elapsed=time.monotonic()-start,
+                                  reason='Process stopped; descendant pipe/lifetime not proven', dispatched=True)
+                return Result(outcome, process.returncode, stdout, stderr, time.monotonic()-start,
+                              outcome.value, True)
             try:
-                stdout, stderr = process.communicate(timeout=2)
+                budget = active_budget.get()
+                wait = min(.25, max(0, timeout-elapsed))
+                if budget is not None:
+                    wait = max(0, min(wait, budget.remaining()))
+                stdout, stderr = process.communicate(timeout=wait)
+                result = Result(Outcome.SUCCESS if process.returncode == 0 else Outcome.FAILED,
+                                process.returncode, stdout, stderr, time.monotonic()-start,
+                                '' if process.returncode == 0 else 'Non-zero command exit', True)
+                receipts = process_receipts.get()
+                if receipts is not None:
+                    receipts.append((tuple(argv), str(Path(cwd).resolve()), id(result),
+                                     result.outcome, result.exit_code,
+                                     hashlib.sha256(stdout.encode('utf-8')).hexdigest(),
+                                     hashlib.sha256(stderr.encode('utf-8')).hexdigest()))
+                return result
             except subprocess.TimeoutExpired:
-                # A descendant may retain a pipe; do not wait without a bound.
-                process.stdout.close()
-                process.stderr.close()
-                return Result(outcome, process.returncode, elapsed=time.monotonic()-start,
-                              reason='Process stopped; descendant pipe/lifetime not proven', dispatched=True)
-            return Result(outcome, process.returncode, stdout, stderr, time.monotonic()-start,
-                          outcome.value, True)
-        try:
-            stdout, stderr = process.communicate(timeout=min(.25, max(.01, timeout-elapsed)))
-            return Result(Outcome.SUCCESS if process.returncode == 0 else Outcome.FAILED,
-                          process.returncode, stdout, stderr, time.monotonic()-start,
-                          '' if process.returncode == 0 else 'Non-zero command exit', True)
-        except subprocess.TimeoutExpired:
-            if heartbeat:
-                heartbeat(elapsed)
+                if heartbeat:
+                    heartbeat(elapsed)
+    finally:
+        # A deadline/evidence exception in a heartbeat must not orphan the child.
+        if process.poll() is None:
+            try:
+                process.kill()
+            except OSError:
+                pass
+            process.stdout.close()
+            process.stderr.close()
 
 
 def requires_approval(operation):

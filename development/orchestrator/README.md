@@ -1,10 +1,35 @@
 # Development Orchestrator â€” Milestone 1
 
-The new local G1/G2 entry point is `python -m orchestrator.managed`; see
+The local G1/G2 entry point is `python -m orchestrator.managed`; see
 [G1-G2-GOVERNANCE.md](G1-G2-GOVERNANCE.md) for authorization, enforced boundaries
 and limitations. Historical local DEV/WB write dispatch now requires this managed
 gate. Historical Linux paths remain outside this MVP's protected boundary.
 The Milestone 1 documentation below describes the read-only same-commit recipe.
+
+In the G3 development tree, managed dispatch additionally requires reviewed
+`--budget <external-budget.json>` input. See [G3-VALIDATION.md](G3-VALIDATION.md)
+for bounded attempts, the single total deadline, explicit fresh retry approvals
+and cooperative timeout limitations. Append `--budget` to historical managed
+execution examples; read-only `--inspect` does not execute an operation.
+
+G4 now additionally requires verified postconditions before a managed result can
+complete. See [G4-VALIDATION.md](G4-VALIDATION.md) for actual edit post-state,
+trusted diff-check process observations, evidence and remaining TOCTOU limits.
+The G3 validation record above describes its historical pre-G4 checkpoint.
+
+G5 seals each successful managed run with the existing ledger's hash chain and
+`completion.json`, binding the operation, authorizations/attempts and G4 evidence.
+`summary.json` alone is provisional. See [G5-VALIDATION.md](G5-VALIDATION.md) for
+read-only verification, trusted caller references and limits; no G6 acceptance
+is supplied. Historical validation documents retain their original checkpoints.
+
+G6 keeps technical G5 completion separate from post-execution human acceptance.
+Under the explicit `g6-managed-v1` policy, managed source edits require a separate
+operator-reviewed decision; read-only diff-check does not. The read-only
+`--verify-human-acceptance` mode binds that decision to the completed certificate,
+never dispatches or writes evidence, and never opens a new execution budget.
+See [G6-VALIDATION.md](G6-VALIDATION.md) for the operator record schema, trust
+boundaries, final scoped matrix and publication file allowlist.
 
 A standard-library Python 3.10+ CLI for a deterministic, read-only, two-worker
 same-commit verification recipe. This is development tooling, not a HostsGuardian

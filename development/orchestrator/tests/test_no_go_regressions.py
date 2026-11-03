@@ -69,6 +69,9 @@ class NoGoRegressionTests(unittest.TestCase):
 
     def test_f01_legitimate_ticket_preserves_naming_and_relative_base(self):
         import os
+        # Relative paths need a same-volume cwd on Windows (D: checkout/C: temp).
+        self.addCleanup(os.chdir, Path.cwd())
+        os.chdir(self.base)
         base = self.base / 'external'
         for artifact in (base, Path(os.path.relpath(base))):
             result = development.evidence_directory(self.root, artifact, 'HG-001')

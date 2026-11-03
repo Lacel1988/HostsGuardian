@@ -9,6 +9,7 @@ import signal
 import subprocess
 import threading
 import uuid
+from .budget import bounded_timeout, checkpoint
 from .model import Task, StateMachine, TaskState, Operation, Result, Outcome
 from .ledger import Ledger
 from .workers import LocalWindowsWorker, Router, requires_approval
@@ -34,7 +35,9 @@ def evidence_directory(root, artifacts, ticket=None):
     if ticket is not None and run.parent != base:
         raise ValueError('Evidence escapes approved base')
     def git(*argv):
-        return subprocess.check_output(['git', '--no-optional-locks', *argv], cwd=root, timeout=20).decode('utf-8')
+        value = subprocess.check_output(['git', '--no-optional-locks', *argv], cwd=root, timeout=bounded_timeout(20)).decode('utf-8')
+        checkpoint()
+        return value
     common = Path(git('rev-parse', '--path-format=absolute', '--git-common-dir').strip()).resolve()
     roots = [Path(item[len('worktree '):]).resolve() for item in
              git('worktree', 'list', '--porcelain', '-z').split('\0') if item.startswith('worktree ')]
@@ -53,6 +56,7 @@ def prepare_edits(root, edits, path_validator=None):
     root = Path(root).resolve()
     prepared, seen = [], set()
     for edit in edits:
+        checkpoint()
         if (not isinstance(edit, dict) or not {'path', 'before_sha256'} <= set(edit) or
                 not set(edit) <= {'path', 'before_sha256', 'content', 'replacements'}):
             raise ValueError('Invalid edit fields')
@@ -94,6 +98,7 @@ def prepare_edits(root, edits, path_validator=None):
                 raise ValueError('Replacement is not unique: ' + name)
             text = text.replace(replacement['old'], replacement['new'], 1)
         prepared.append((path, text.encode('utf-8')))
+        checkpoint()
     return prepared
 
 
@@ -142,8 +147,11 @@ class DevelopmentWindowsWorker(LocalWindowsWorker):
         if cancel.is_set():
             return Result(Outcome.CANCELLED,None,reason='Cancelled before source write')
         for path,content in prepared:
+            checkpoint()
             path.parent.mkdir(parents=True, exist_ok=True)
+            checkpoint()
             path.write_bytes(content)
+            checkpoint()
         return Result(Outcome.SUCCESS,0,json.dumps({'edited':[str(p.relative_to(self.root)) for p,_ in prepared]}),dispatched=True)
 
 

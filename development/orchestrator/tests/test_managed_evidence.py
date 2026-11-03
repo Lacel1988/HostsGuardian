@@ -25,7 +25,9 @@ class ManagedEvidenceTests(unittest.TestCase):
         for name, value in [('profile', profile), ('request', asdict(operation)),
                             ('authorization', asdict(self.auth((), operation)))]:
             (self.base / (name + '.json')).write_text(json.dumps(value))
+        (self.base / 'budget.json').write_text(json.dumps({'total_timeout_seconds': 300}))
         return ['--profile', str(self.base / 'profile.json'), '--request', str(self.base / 'request.json'),
+                '--budget', str(self.base / 'budget.json'),
                 '--authorization', str(self.base / 'authorization.json'), '--artifacts', str(destination), '--plain']
 
     def denied_without_writes(self, destination):

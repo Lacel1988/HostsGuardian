@@ -56,6 +56,7 @@ class Result:
     elapsed: float = 0
     reason: str = ''
     dispatched: bool | None = False
+    failure_code: str = ''
 
 
 @dataclass
